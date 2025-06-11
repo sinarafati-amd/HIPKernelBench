@@ -1,0 +1,39 @@
+flowchart TD
+  subgraph Setup
+    A1["docs/hip_spec.pdf"] -->|build_vector_store.py| VS["vector_store/"]
+    A2["input_torch.py"] --> B1
+  end
+
+  subgraph Orchestration_Loop
+    B1["Orchestrator"] --> C1["TorchAnalyser"]
+    C1 --> C2["torch_explanation"]
+    B1 --> R1["RAGResearcher"]
+    R1 --> R2["doc_context"]
+    B1 --> G1["HIPGenerator"]
+    G1 --> G2["hip_code.hip"]
+    B1 --> X1["Executor"]
+    X1 --> X2["compile & rocprof"]
+    X2 --> X3["stats"]
+    X3 --> L1["Logger → generation_history.jsonl"]
+    L1 -->|if more iters| B1
+  end
+
+  subgraph Fine_Tuning
+    L1 --> T1["lora_finetune.py"]
+    T1 --> T2["lora-adapter"]
+  end
+
+  subgraph RL_with_GRPO
+    L1 --> RL1["RewardModel"]
+    RL1 --> RL2["PolicyTrainer (GRPO)"]
+    RL2 --> RL3["llm_policy_update"]
+    RL3 -->|updated LLM for HIPGenerator| G1
+    T2 -->|updated LLM for HIPGenerator| G1
+    RL2 -->|loop until reward threshold| RL1
+
+  end
+
+  style VS fill:#f9f,stroke:#333,stroke-width:1px
+  style L1 fill:#ff9,stroke:#333,stroke-width:1px
+  style T2 fill:#ccf,stroke:#333,stroke-width:1px
+  style RL3 fill:#cfc,stroke:#333,stroke-width:1px
