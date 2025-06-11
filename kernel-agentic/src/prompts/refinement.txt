@@ -1,0 +1,4 @@
+Earlier compile/run feedback:
+{error_or_profile}
+
+Improve the kernel; keep the same API signature.

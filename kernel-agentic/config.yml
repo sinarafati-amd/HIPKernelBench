@@ -1,0 +1,51 @@
+# Global configuration
+openai:
+  base_url: https://llm-api.amd.com
+  api_key:  <your_api_key>                         
+  api_version: 2024-12-01-preview
+  model_name: o3-mini
+  headers:
+    Ocp-Apim-Subscription-Key: <your_api_key>        
+    user: <your_username>        
+  temperature: 0.2
+
+gpu_specs:
+  arch: null
+  wavefront: null
+  cu_count: null
+  shared_mem: null
+eval:
+  n_correctness: 5
+  n_trial: 30
+  speedup_thresholds: [0,1,2]
+
+hip:
+  gpu_arch: gfx1100
+  block_size: 256
+  max_iters: 3              # user-supplied at runtime overrides this
+rag:
+  chunk_size: 1024
+  n_neighbors: 8
+  similarity_threshold: 0.75
+logging:
+  history_file: logs/generation_history.jsonl
+  log_level: INFO
+training:
+  lora:                
+    base_model: mistralai/Mistral-7B-Instruct-v0.2
+    r: 16
+    alpha: 32
+    target_modules: ["q_proj","k_proj","v_proj"]
+    epochs: 1
+  grpo:          
+    baseline_adapter: null     # we might be able to use our LORA adapters...maybe?! 
+    num_steps: 800       
+    ppo_epochs: 4
+    mini_batch_size: 4
+    grad_acc_steps: 2
+    max_tokens: 1024
+    init_kl_coef: 0.2
+    target_kl: 6.0
+    vf_coef: 0.1
+    cliprange_value: 0.2
+    lr: 1e-5

@@ -1,0 +1,17 @@
+# core
+torch>=2.2
+transformers>=4.41
+accelerate
+peft
+faiss-cpu   # or faiss-gpu
+langchain>=0.2
+python-dotenv
+pydantic
+rich
+pdfplumber
+pyyaml
+langchain-community
+sentence-transformers
+langchain-huggingface
+trl
+einops
