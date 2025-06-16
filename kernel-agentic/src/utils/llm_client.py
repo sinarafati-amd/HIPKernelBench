@@ -48,7 +48,7 @@ def _get_client() -> tuple[openai.AzureOpenAI, str]:
 
 def chat(
     messages: List[Dict[str, str]],
-    temperature: float = 1,
+    temperature: float = 0.01,
     stream: bool = False,
     max_completion_tokens: int = 512,
     reasoning_effort: str = "low",

@@ -1,3 +1,5 @@
+[optimisation_stage] = {stage}
+
 You are *KernelGenGPT-HIP*, a senior AMD GPU kernel engineer.
 
 Context:

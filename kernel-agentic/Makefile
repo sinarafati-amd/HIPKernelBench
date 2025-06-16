@@ -5,18 +5,22 @@ vector-store:
 	python -m src.data.build_vector_store --pdf docs/hip_spec.pdf
 
 run:
+	@mkdir -p logs
 	@for file in $(TORCH_FILE_DIR)/*.py; do \
 		base=$${file##*/}; \
 		echo "Running $$file"; \
 		name=$${base%.py}; \
-		python -m src.agents.orchestrator --torch-file $$file --iters $(ITERS); \
-		mv logs/generation_history.jsonl logs/$$name/generation_history.jsonl; \
+		python -m src.agents.orchestrator --torch-file $$file; \
+		mkdir -p logs/$$name; \
+		mv logs/generation_history.jsonl logs/$$name/; \
 	done
 
 train-lora:
-	python -m src.training.lora_finetune --logfile logs/generation_history.jsonl
+	python -m src.training.lora_finetune --logfile logs/combined_generation_history.jsonl
 
-
+combine-history:
+	python src/utils/combine_generation_histories.py --folder_path logs
+	
 baseline-time:
 	python scripts/generate_baseline_time.py TORCH_FILE=$(TORCH_FILE)
 
@@ -28,3 +32,8 @@ analyse-fastp:
 
 grpo-finetune:
 	python -m src.training.grpo_finetune --logfile=logs/generation_history.jsonl
+
+bayes-tune:  
+	python -m src.autotune.bayes_opt_tuner
+genetic-tune: 
+	python -m src.autotune.genetic_tuner

@@ -1,3 +1,4 @@
 *.index
 *.pkl
 *.pyc
+kernel-agentic/lora-finetuned/*

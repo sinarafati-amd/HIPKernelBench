@@ -3,27 +3,17 @@ import pathlib
 import time
 import inspect
 from typing import Any, Dict, Callable, List
-
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 
-def _baseline_latency(torch_file: str, n_trial: int = 30) -> float:
-    """
-    Measure and cache the reference PyTorch latency in micro-seconds.
 
-    • Caches results under `logs/baseline_<stem>.json`.
-    • First looks for a callable `run_ref()`.
-    • Next, if there's a callable `get_inputs()`, it:
-        – Finds exactly one nn.Module subclass in the file.
-        – Instantiates it using get_init_inputs() if present.
-        – Wraps the model and get_inputs into a `run_fn`.
-    • Otherwise, auto-detects a single function ending in `_ref`
-      and fabricates dummy tensors based on parameter names.
-    """
+def _baseline_latency(torch_file: str, n_trial: int = 30) -> float:
+
+
     # 1) check cache
     stem = pathlib.Path(torch_file).stem
-
-    cache_file = pathlib.Path("logs")/stem / f"baseline_{stem}.json"
+    cache_file = pathlib.Path("logs") / stem / f"baseline_{stem}.json"
     if cache_file.exists():
         return json.load(open(cache_file))["lat_us"]
 
@@ -32,19 +22,19 @@ def _baseline_latency(torch_file: str, n_trial: int = 30) -> float:
     code = pathlib.Path(torch_file).read_text()
     exec(compile(code, torch_file, 'exec'), namespace)
 
-    # 3) pick your runner
-    run_fn: Callable[[], Any]
+    # 3) pick your CUDA device once
+    device_idx = torch.cuda.current_device()
+    DEVICE = torch.device(f"cuda:{device_idx}")
 
-    # 3a) user-supplied run_ref()
-    if callable(namespace.get("run_ref", None)):
-        run_fn = namespace["run_ref"]
+    # 4) build run_fn
+    if callable(namespace.get("run_ref")):
+        run_fn: Callable[[], Any] = namespace["run_ref"]
 
-    # 3b) user-supplied get_inputs() + (opt) get_init_inputs()
-    elif callable(namespace.get("get_inputs", None)):
+    elif callable(namespace.get("get_inputs")):
         get_inputs = namespace["get_inputs"]
         get_init = namespace.get("get_init_inputs", lambda: [])
 
-        # find exactly one Module subclass
+        # find exactly one nn.Module subclass
         mods = [
             obj for obj in namespace.values()
             if isinstance(obj, type) and issubclass(obj, nn.Module)
@@ -54,22 +44,25 @@ def _baseline_latency(torch_file: str, n_trial: int = 30) -> float:
                 f"{torch_file}: expected exactly one nn.Module subclass, found {len(mods)}"
             )
         ModelClass = mods[0]
+        breakpoint()
         init_args = get_init()
         if not isinstance(init_args, (list, tuple)):
             raise RuntimeError("get_init_inputs() must return a list or tuple")
 
-        model = ModelClass(*init_args).to("cuda").eval()
+        # instantiate + move model
+        model = ModelClass(*init_args).to(DEVICE).eval()
+
+        # generate + move inputs once
+        cpu_inputs = get_inputs()
+        if not isinstance(cpu_inputs, (list, tuple)):
+            raise RuntimeError("get_inputs() must return a list or tuple of tensors")
+        inputs_cuda = [inp.to(DEVICE, non_blocking=True) for inp in cpu_inputs]
 
         def run_fn():
-            inputs = get_inputs()
-            if not isinstance(inputs, (list, tuple)):
-                raise RuntimeError("get_inputs() must return a list or tuple of tensors")
-            # move everything to CUDA
-            inputs_cuda: List[torch.Tensor] = [inp.to("cuda") for inp in inputs]
             return model(*inputs_cuda)
 
-    # 3c) fallback: exactly one fn ending in _ref
     else:
+        # fallback: exactly one fn ending in _ref
         ref_fns = [
             v for k, v in namespace.items()
             if callable(v) and k.endswith("_ref")
@@ -79,43 +72,52 @@ def _baseline_latency(torch_file: str, n_trial: int = 30) -> float:
                 f"{torch_file}: must define run_ref(), get_inputs(), or exactly one *_ref; found {len(ref_fns)}"
             )
         fn = ref_fns[0]
+        sig = inspect.signature(fn)
 
         def run_fn():
-            sig = inspect.signature(fn)
             args: List[torch.Tensor] = []
             for p in sig.parameters.values():
-                # very crude tensor heuristics—feel free to tune!
                 if "weight" in p.name:
                     args.append(
-                        torch.randn(8, 3, 3, 3, device="cuda", dtype=torch.float16)
+                        torch.randn(8, 3, 3, 3, device=DEVICE, dtype=torch.float16)
                     )
                 elif "bias" in p.name:
                     args.append(
-                        torch.randn(8, device="cuda", dtype=torch.float16)
+                        torch.randn(8, device=DEVICE, dtype=torch.float16)
                     )
                 else:
                     args.append(
-                        torch.randn(1, 3, 32, 32, device="cuda", dtype=torch.float16)
+                        torch.randn(1, 3, 32, 32, device=DEVICE, dtype=torch.float16)
                     )
             return fn(*args)
 
-    # 4) timing loop
-    torch.cuda.synchronize()
+    # 5) warm-up (so first kernel launch isn’t in measurements)
     with torch.no_grad():
-        timings = []
-        for _ in range(n_trial):
-            start = time.time()
-            run_fn()
-            torch.cuda.synchronize()
-            timings.append(time.time() - start)
-    avg_s = sum(timings) / n_trial
+        run_fn()
+        torch.cuda.synchronize()
 
-    # 5) cache & return
-    lat_us = avg_s * 1e6
-    cache_file.parent.mkdir(exist_ok=True)
+    # 6) timing loop with CUDA events
+    start_evt = torch.cuda.Event(enable_timing=True)
+    end_evt   = torch.cuda.Event(enable_timing=True)
+    timings_ms: List[float] = []
+
+    with torch.no_grad():
+        for _ in tqdm(range(n_trial), desc="Benchmarking"):
+            start_evt.record()
+            run_fn()
+            end_evt.record()
+            torch.cuda.synchronize()
+            # elapsed_time gives milliseconds
+            timings_ms.append(start_evt.elapsed_time(end_evt))
+
+    # 7) compute average & convert to micro-seconds
+    avg_ms = sum(timings_ms) / len(timings_ms)
+    lat_us = avg_ms * 1000.0
+
+    # 8) cache & return
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
     with open(cache_file, "w") as f:
         json.dump({"lat_us": lat_us}, f)
+
+    print(f"[Device: {DEVICE}] Avg elapsed: {avg_ms:.2f} ms")
     return lat_us
-
-
-

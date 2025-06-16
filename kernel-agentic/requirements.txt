@@ -14,4 +14,8 @@ langchain-community
 sentence-transformers
 langchain-huggingface
 trl
+tiktoken
+sentencepiece 
+blobfile
 einops
+protobuf

@@ -1,83 +1,66 @@
-"""
-GRPO fine-tune on generation_history.jsonl
-==========================================
-
-• Starts from the *SFT-LoRA adapter* you trained earlier
-  (folder: `lora-finetuned/`).  If you have none, it will
-  fall back to the base model.
-
-• Offline RL:  reward signals are mined from logs:
-    –   iteration_complete →  reward =  speedup   (if correct=True)
-    –   else →  reward = −1.0                    (penalise failures)
-
-• Uses HF TRL's `GRPOTrainer`, which implements Generalised
-  Reinforcement Policy Optimisation (actor-critic with a KL
-  controller, see https://laion.ai/blog/grpo for theory).
-"""
-
 from __future__ import annotations
-import argparse, json, math, os, random, yaml
+import argparse, json, random, os, yaml
 from datasets import Dataset
-import torch, transformers, accelerate
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel, LoraConfig, prepare_model_for_kbit_training
+from peft import PeftModel, prepare_model_for_kbit_training
 from trl import GRPOConfig, GRPOTrainer
 
+# ─── Load configs ───────────────────────────────────────────────────────
 CFG      = yaml.safe_load(open("config.yml"))
 GRPO_CFG = CFG["training"]["grpo"]
 LORA_CFG = CFG["training"]["lora"]
 
-# ---------------------------------------------------------------------
-# 1)  Build (prompt, response, reward) dataset from JSONL
-# ---------------------------------------------------------------------
+# ─── Build (prompt, response, reward) dataset ────────────────────────────
 def load_offline_dataset(logfile: str) -> Dataset:
     samples = []
     with open(logfile) as fp:
         for line in fp:
             row = json.loads(line)
             if row.get("event") == "iteration_complete":
-                prompt    = row["prompt"]
-                response  = row["response"]
-                correct   = row.get("correct", False)
-                speedup   = row.get("speedup", 0.0) or 0.0
-                reward    = speedup if correct else -1.0
-                samples.append({"prompt": prompt, "response": response,
-                                "reward": reward})
+                # skip if no prompt/response
+                if "prompt" not in row or "response" not in row:
+                    continue
+                reward = row["speedup"] if row["correct"] else -1.0
+                samples.append({
+                    "prompt":   row["prompt"],
+                    "response": row["response"],
+                    "reward":   reward,
+                })
     random.shuffle(samples)
     return Dataset.from_list(samples)
 
-# ---------------------------------------------------------------------
-# 2)  Tokenisation helper
-# ---------------------------------------------------------------------
+# ─── Tokenisation helper ─────────────────────────────────────────────────
 def build_tokenised(ds: Dataset, tok: AutoTokenizer, max_len: int):
     eos = tok.eos_token
-    def _tok(example):
-        text = example["prompt"] + eos + example["response"]
-        tokens = tok(text, truncation=True, max_length=max_len)
-        tokens["rewards"] = [example["reward"]]   # scalar reward per sample
-        return tokens
+    def _tok(ex):
+        text = ex["prompt"] + eos + ex["response"] + eos
+        out   = tok(text, truncation=True, max_length=max_len)
+        out["rewards"] = [ex["reward"]]
+        return out
     return ds.map(_tok, batched=False)
 
-# ---------------------------------------------------------------------
-# 3)  Main GRPO pipeline
-# ---------------------------------------------------------------------
+# ─── Main GRPO pipeline ──────────────────────────────────────────────────
 def main(logfile: str):
-    # 3.1  Model & tokenizer ----------------------------------------------------
-    base_name   = LORA_CFG["base_model"]
-    sf_adapter  = "lora-finetuned"
-    tok         = AutoTokenizer.from_pretrained(base_name, use_fast=True)
+    # 1) Base + (optional) LoRA adapter
+    base_name  = LORA_CFG["base_model"]
+    adapter_dir = "lora-finetuned"
+    tok  = AutoTokenizer.from_pretrained(base_name, use_fast=True)
     tok.pad_token = tok.eos_token
-    model       = AutoModelForCausalLM.from_pretrained(
-                      base_name, load_in_8bit=True, device_map="auto")
-    model       = prepare_model_for_kbit_training(model)
-    if os.path.isdir(sf_adapter):
-        model = PeftModel.from_pretrained(model, sf_adapter)
+    model = AutoModelForCausalLM.from_pretrained(
+        base_name,
+        load_in_8bit = True,
+        device_map   = "auto"
+    )
+    model = prepare_model_for_kbit_training(model)
+    if os.path.isdir(adapter_dir):
+        model = PeftModel.from_pretrained(model, adapter_dir)
 
-    # 3.2  Offline RL dataset ---------------------------------------------------
-    raw_ds  = load_offline_dataset(logfile)
-    ds      = build_tokenised(raw_ds, tok, max_len=GRPO_CFG["max_tokens"])
+    # 2) Build RL dataset
+    raw_ds = load_offline_dataset(logfile)
+    ds     = build_tokenised(raw_ds, tok, max_len=GRPO_CFG["max_tokens"])
 
-    # 3.3  GRPO trainer ---------------------------------------------------------
+    # 3) GRPO config & trainer
     grpo_conf = GRPOConfig(
         ppo_epochs           = GRPO_CFG["ppo_epochs"],
         mini_batch_size      = GRPO_CFG["mini_batch_size"],
@@ -93,19 +76,18 @@ def main(logfile: str):
     )
 
     trainer = GRPOTrainer(
-        model            = model,
-        ref_model        = None,            # use KL against initial weights
-        tokenizer        = tok,
-        dataset          = ds,
-        config           = grpo_conf,
-        reward_key       = "rewards",
+        model      = model,
+        ref_model  = None,           # KL to initial weights
+        tokenizer  = tok,
+        dataset    = ds,
+        config     = grpo_conf,
+        reward_key = "rewards",
     )
 
-    print(f"Dataset size: {len(ds)} prompts — starting GRPO fine-tune…")
+    print(f"Dataset size: {len(ds)} samples → starting GRPO…")
     trainer.train(GRPO_CFG["num_steps"])
     trainer.save_pretrained("lora-grpo")
 
-# ---------------------------------------------------------------------
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--logfile", default="logs/generation_history.jsonl")
