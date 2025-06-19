@@ -2,3 +2,6 @@
 *.pkl
 *.pyc
 kernel-agentic/lora-finetuned/*
+kernel-agentic/logs/*
+kernel-agentic/lora-grpo/*
+kernel-agentic/logs_back

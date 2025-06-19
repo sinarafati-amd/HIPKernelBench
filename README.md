@@ -1,1 +1,65 @@
-# llm-kernel-
+```mermaid
+  flowchart TD
+    %% ----------  SETUP  ----------
+    subgraph Setup
+      A1["docs/hip_spec.pdf"] -->|build_vector_store.py| VS["vector_store/"]
+      A2["input_torch.py"]     --> B1
+    end
+
+    %% ----------  PHASE 1 – LLM synthesis until first correct kernel ----------
+    subgraph Phase1_LLMSynthesis["Phase 1 – find a correct HIP kernel"]
+      B1["Orchestrator"] --> C1["TorchAnalyser"]
+      C1 --> C2["torch_explanation"]
+
+      B1 --> R1["RAGResearcher"]
+      R1 --> R2["doc_context"]
+
+      B1 --> G1["HIPGenerator"]
+      G1 --> G2["hip_code.hip"]
+
+      B1 --> X1["Executor"]
+      X1 --> X2["compile + rocprof"]
+      X2 --> X3["stats (+ correctness check)"]
+
+      %% first correct kernel
+      X3 -->|correct? yes → hand-off| P0["best_code.hip"]
+      X3 -->|correct? no → iterate| L1a
+
+      L1a[/"Logger → generation_history.jsonl"/] -.->|loop| B1
+    end
+
+    %% ----------  PHASE 2 – Bayes / Genetic HPO ----------
+    subgraph Phase2_HPO["Phase 2 – Bayes / Genetic optimisation"]
+      O1["Optimiser\n(BayesOpt or GeneticOpt)"] --> O2["tunable_params"]
+      O2 --> O3["apply_tunables → patched_code.hip"]
+      O3 --> X1b["Executor"]
+      X1b --> X2b["compile + rocprof"]
+      X2b --> X3b["stats (speed-up)"]
+
+      X3b --> L1b[/"Logger → generation_history.jsonl"/]
+      L1b -.->|budget left?| O1
+    end
+    P0 --> O1
+
+    %% ----------  OFF-LINE LEARNING ----------
+    subgraph Fine_Tuning
+      L1b --> T1["lora_finetune.py"]
+      T1  --> T2["lora-adapter"]
+    end
+
+    subgraph RL_with_GRPO
+      L1b --> RL1["RewardModel"]
+      RL1 --> RL2["PolicyTrainer (GRPO)"]
+      RL2 --> RL3["llm_policy_update"]
+      RL3 -->|updated LLM for HIPGenerator| G1
+      T2  -->|updated LLM for HIPGenerator| G1
+      RL2 -->|loop until reward threshold| RL1
+    end
+
+    %% ----------  STYLES ----------
+    style VS  fill:#f9f,stroke:#333,stroke-width:1px
+    style L1a fill:#ff9,stroke:#333,stroke-width:1px
+    style L1b fill:#ff9,stroke:#333,stroke-width:1px
+    style T2  fill:#ccf,stroke:#333,stroke-width:1px
+    style RL3 fill:#cfc,stroke:#333,stroke-width:1px
+```

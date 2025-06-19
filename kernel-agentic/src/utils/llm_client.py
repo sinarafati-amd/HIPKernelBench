@@ -1,13 +1,3 @@
-"""
-Centralised Azure OpenAI chat wrapper
-====================================
-
-All agents call `llm_client.chat()` instead of talking to the
-OpenAI SDK directly.  Connection parameters are taken from **env vars
-_or_ config.yml** so you can point the codebase at any Azure
-deployment without touching the agents.
-"""
-
 from __future__ import annotations
 import os, yaml, openai
 from functools import lru_cache

@@ -13,8 +13,10 @@ def compile_hip(source_code: str) -> str:
         f.write(source_code)
     out_name = os.path.join(path, "kernel.out")
     cmd = ["hipcc", hip_file, "-o", out_name]
+    cmd2 = ["hipcc","-fPIC", "-shared", hip_file, "-o",  out_name := os.path.join(path, "kernel.so")]
     try:
         output = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
+        output2 = subprocess.run(cmd2, capture_output=True, text=True, env=os.environ)
         stdout = output.stdout
         stderr = output.stderr
 

@@ -16,7 +16,7 @@ run:
 	done
 
 train-lora:
-	python -m src.training.lora_finetune --logfile logs/combined_generation_history.jsonl
+	python -m src.training.lora_finetune --logfile logs/combined_SFT_generation_history.jsonl
 
 combine-history:
 	python src/utils/combine_generation_histories.py --folder_path logs
@@ -31,9 +31,4 @@ analyse-fastp:
 	python scripts/fastp_analysis.py RUN_DIR=$(RUN)
 
 grpo-finetune:
-	python -m src.training.grpo_finetune --logfile=logs/generation_history.jsonl
-
-bayes-tune:  
-	python -m src.autotune.bayes_opt_tuner
-genetic-tune: 
-	python -m src.autotune.genetic_tuner
+	python -m src.training.grpo_finetune --logfile=logs/combined_generation_history.jsonl

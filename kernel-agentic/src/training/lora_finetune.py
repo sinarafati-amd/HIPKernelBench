@@ -58,7 +58,7 @@ def main(logfile):
             texts, 
             truncation=True, 
             padding="max_length",
-            max_length=512,  # Adjust based on your needs
+            max_length=512,  
             return_tensors="pt"
         )
 
@@ -71,7 +71,7 @@ def main(logfile):
     training_args = TrainingArguments(
         output_dir="./lora-finetuned",
         num_train_epochs=CFG["epochs"],
-        per_device_train_batch_size=4,  # Adjust based on your GPU memory
+        per_device_train_batch_size=4,  # Adjust based on GPU memory
         gradient_accumulation_steps=4,
         learning_rate=5e-4,
         logging_steps=10,

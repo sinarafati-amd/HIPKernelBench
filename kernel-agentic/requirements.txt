@@ -19,3 +19,11 @@ sentencepiece
 blobfile
 einops
 protobuf
+openai
+sentencepiece
+rank_bm25
+duckduckgo_search
+requests
+beautifulsoup4
+optuna
+deap

@@ -1,94 +1,112 @@
 from __future__ import annotations
-import argparse, json, random, os, yaml
-from datasets import Dataset
+import argparse
+import json
+import os
+import random
+import yaml
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel, prepare_model_for_kbit_training
+
+from datasets import Dataset
 from trl import GRPOConfig, GRPOTrainer
+from transformers import AutoModelForCausalLM
+from peft import PeftModel
 
-# ─── Load configs ───────────────────────────────────────────────────────
-CFG      = yaml.safe_load(open("config.yml"))
-GRPO_CFG = CFG["training"]["grpo"]
-LORA_CFG = CFG["training"]["lora"]
+# ── Load configs ────────────────────────────────────────────────────────────
+CFG       = yaml.safe_load(open("config.yml"))
+GRPO_CFG  = CFG["training"]["grpo"]
+LORA_CFG  = CFG["training"]["lora"]
+USE_8BIT  = GRPO_CFG.get("use_8bit", False)
 
-# ─── Build (prompt, response, reward) dataset ────────────────────────────
-def load_offline_dataset(logfile: str) -> Dataset:
-    samples = []
+# ── Cast numeric config values ───────────────────────────────────────────────
+int_keys   = ["mini_batch_size", "grad_acc_steps", "num_train_epochs", "max_steps", "num_iterations", "logging_steps"]
+float_keys = ["lr", "max_grad_norm", "epsilon", "epsilon_high", "scale_rewards"]
+for k in int_keys:
+    if k in GRPO_CFG and GRPO_CFG[k] is not None:
+        GRPO_CFG[k] = int(GRPO_CFG[k])
+for k in float_keys:
+    if k in GRPO_CFG and GRPO_CFG[k] is not None:
+        GRPO_CFG[k] = float(GRPO_CFG[k])
+
+# ── 1) Build Dataset from iteration_complete rows ───────────────────────────
+def build_ds(logfile: str) -> Dataset:
+    rows = []
     with open(logfile) as fp:
         for line in fp:
-            row = json.loads(line)
-            if row.get("event") == "iteration_complete":
-                # skip if no prompt/response
-                if "prompt" not in row or "response" not in row:
-                    continue
-                reward = row["speedup"] if row["correct"] else -1.0
-                samples.append({
-                    "prompt":   row["prompt"],
-                    "response": row["response"],
-                    "reward":   reward,
-                })
-    random.shuffle(samples)
-    return Dataset.from_list(samples)
+            evt = json.loads(line)
+            if evt.get("event") != "iteration_complete":
+                continue
+            if not all(k in evt for k in ("prompt", "response", "speedup", "correct")):
+                continue
+            rows.append({
+                "prompt":     evt["prompt"],
+                "completion": evt["response"],
+                "speedup":    evt["speedup"],
+                "correct":    evt["correct"],
+            })
+    random.shuffle(rows)
+    return Dataset.from_list(rows)
 
-# ─── Tokenisation helper ─────────────────────────────────────────────────
-def build_tokenised(ds: Dataset, tok: AutoTokenizer, max_len: int):
-    eos = tok.eos_token
-    def _tok(ex):
-        text = ex["prompt"] + eos + ex["response"] + eos
-        out   = tok(text, truncation=True, max_length=max_len)
-        out["rewards"] = [ex["reward"]]
-        return out
-    return ds.map(_tok, batched=False)
+# ── 2) Define reward function ─────────────────────────────────────────────────
+def speedup_reward(completions, speedup, correct, **kwargs):
+    return [spd if cor else -1.0 for spd, cor in zip(speedup, correct)]
 
-# ─── Main GRPO pipeline ──────────────────────────────────────────────────
+# ── 3) Main GRPO pipeline ────────────────────────────────────────────────────
 def main(logfile: str):
-    # 1) Base + (optional) LoRA adapter
-    base_name  = LORA_CFG["base_model"]
-    adapter_dir = "lora-finetuned"
-    tok  = AutoTokenizer.from_pretrained(base_name, use_fast=True)
-    tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(
-        base_name,
-        load_in_8bit = True,
-        device_map   = "auto"
-    )
-    model = prepare_model_for_kbit_training(model)
-    if os.path.isdir(adapter_dir):
-        model = PeftModel.from_pretrained(model, adapter_dir)
+    ds = build_ds(logfile)
 
-    # 2) Build RL dataset
-    raw_ds = load_offline_dataset(logfile)
-    ds     = build_tokenised(raw_ds, tok, max_len=GRPO_CFG["max_tokens"])
-
-    # 3) GRPO config & trainer
-    grpo_conf = GRPOConfig(
-        ppo_epochs           = GRPO_CFG["ppo_epochs"],
-        mini_batch_size      = GRPO_CFG["mini_batch_size"],
-        init_kl_coef         = GRPO_CFG["init_kl_coef"],
-        target_kl            = GRPO_CFG["target_kl"],
-        gamma                = 1.0,
-        lam                  = 0.95,
-        vf_coef              = GRPO_CFG["vf_coef"],
-        cliprange_value      = GRPO_CFG["cliprange_value"],
-        learning_rate        = GRPO_CFG["lr"],
+    training_args = GRPOConfig(
+        output_dir                  = GRPO_CFG.get("output_dir", "lora-grpo"),
+        logging_steps               = GRPO_CFG.get("logging_steps", 10),
+        per_device_train_batch_size = GRPO_CFG["mini_batch_size"],
         gradient_accumulation_steps = GRPO_CFG["grad_acc_steps"],
-        max_grad_norm        = 1.0,
+        learning_rate               = GRPO_CFG["lr"],
+        max_grad_norm               = GRPO_CFG["max_grad_norm"],
+        num_train_epochs            = GRPO_CFG["num_train_epochs"],
+        max_steps                   = GRPO_CFG["max_steps"],
+        num_iterations              = GRPO_CFG["num_iterations"],
+        epsilon                     = GRPO_CFG["epsilon"],
+        epsilon_high                = GRPO_CFG.get("epsilon_high"),
+        scale_rewards               = GRPO_CFG["scale_rewards"],
+        loss_type                   = GRPO_CFG["loss_type"],
     )
 
+    # instantiate base model
+    base_model = GRPO_CFG["base_model"]
+    model = AutoModelForCausalLM.from_pretrained(
+        base_model,
+        torch_dtype=torch.float16,
+        load_in_8bit=USE_8BIT,
+        device_map="auto",
+    )
+
+    # optionally load LoRA adapter
+    lora_dir = LORA_CFG.get("dir", "lora-finetuned")
+    if GRPO_CFG.get("use_SFT_model", False) and os.path.isdir(lora_dir):
+        try:
+            model = PeftModel.from_pretrained(model, lora_dir)
+        except RuntimeError as e:
+            print(f"Warning: failed to load LoRA adapter from '{lora_dir}': {e}")
+
+    # create and run trainer
     trainer = GRPOTrainer(
-        model      = model,
-        ref_model  = None,           # KL to initial weights
-        tokenizer  = tok,
-        dataset    = ds,
-        config     = grpo_conf,
-        reward_key = "rewards",
+        model         = model,
+        reward_funcs  = speedup_reward,
+        args          = training_args,
+        train_dataset = ds,
     )
+    print(f"Running GRPO on {len(ds)} samples; 8-bit={'yes' if USE_8BIT else 'no'}")
+    trainer.train()
 
-    print(f"Dataset size: {len(ds)} samples → starting GRPO…")
-    trainer.train(GRPO_CFG["num_steps"])
-    trainer.save_pretrained("lora-grpo")
+    # save final model (including LoRA) to output_dir
+    output_dir = GRPO_CFG.get("output_dir", "lora-grpo")
+    os.makedirs(output_dir, exist_ok=True)
+    try:
+        model.save_pretrained(output_dir)
+    except Exception as e:
+        print(f"Error saving model to '{output_dir}': {e}")
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--logfile", default="logs/generation_history.jsonl")
-    main(ap.parse_args().logfile)
+    args = ap.parse_args()
+    main(args.logfile)

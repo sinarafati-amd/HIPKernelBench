@@ -1,4 +1,20 @@
 # Global configuration
+
+Pipeline:
+  rag_enabled: true
+  online_search: false
+  kernel_lang: hip
+  use_bayes: true
+  use_genetic: true
+  enable_correctness: false 
+  search:
+    method: bayes         # bayes | genetic
+    max_trials: 60        # for Bayesian
+    pop: 16               # for GA
+    ngen: 20
+
+
+
 openai:
   base_url: https://llm-api.amd.com
   api_key:  fe76c012dd51448cb0ec5f1e86c298a9                       
@@ -14,20 +30,21 @@ gpu_specs:
   wavefront: null
   cu_count: null
   shared_mem: null
+
 eval:
-  n_correctness: 5
-  n_trial: 30
-  speedup_thresholds: [0,1,2]
+  atol: 1e-4 #absolute-error threshold
+  n_trial: 3
 
 stopping:
-  min_iters: 2          # never exit earlier than this
-  max_iters: 3         # absolute cap (safety valve)
-  target_speedup: 2.0   # stop if speedup ≥ 2× baseline
+  min_iters: 3          # never exit earlier than this
+  max_iters: 4          # absolute cap (safety valve)
+  target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
-  patience: 3           # end if no ε-better for these many iterations
-  max_failures: 3       # bail if compile/run failed this many times in a row
+  patience: 4           # end if no ε-better for these many iterations
+  max_failures: 4       # bail if compile/run failed this many times in a row
   
 hip:
+ 
   gpu_arch: gfx1100
   block_size: 256      
   n_samples: 2
@@ -36,11 +53,16 @@ rag:
   chunk_size: 1024
   n_neighbors: 8
   similarity_threshold: 0.75
+  text_store:    vector_store/text.index
+  code_store:    vector_store/code.index
+  top_k_semantic: 8
+  top_k_bm25:     6
+  rerank_cutoff:  8
+  final_tokens:  800
   
 logging:
   history_file: logs/generation_history.jsonl
   log_level: INFO
-
 
 training:
   lora:                
@@ -49,8 +71,8 @@ training:
     alpha: 32
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
     epochs: 1
-  grpo:          
-    baseline_adapter: null     # we might be able to use our LORA adapters...maybe?! 
+  grpo:         
+    base_model: Qwen/Qwen2-0.5B-Instruct
     num_steps: 800       
     ppo_epochs: 4
     mini_batch_size: 4
@@ -61,11 +83,26 @@ training:
     vf_coef: 0.1
     cliprange_value: 0.2
     lr: 1e-5
+    use_8bit: false  
+    use_SFT_model: false   
+    mini_batch_size:       4       # per_device_train_batch_size
+    grad_acc_steps:        4       # gradient_accumulation_steps
+    lr:                    5e-4    # learning_rate
+    max_grad_norm:         1.0     # max_grad_norm
 
-autotune:
-  use_bayes: true
-  use_genetic: true
-  max_trials: 30
+    num_train_epochs:      3       # epochs over the RL dataset
+    max_steps:            -1       # total steps override (-1 = no limit)
+    
+    num_iterations:        1       # μ updates per generation
+    epsilon:               0.2     # clip epsilon low
+    epsilon_high:         null    # clip epsilon high 
+    
+    scale_rewards:        true    # normalize by std(r)? 
+    loss_type:            "bnpo"  # 'bnpo', 'dr_grpo', etc.
+
+search:
+  max_results: 5
+
 occupancy:
   enforce_fit: true
 bandit:
