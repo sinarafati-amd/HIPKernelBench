@@ -23,12 +23,9 @@ class SearchAgent(BaseAgent):
 
     def search(self, torch_expl: str) -> str:
         # 1) Let LLM propose a focused query
-        qry = self.ask(
-            "<thinking>\n"
-            "Given this PyTorch operation description, propose a 3–5 word DuckDuckGo search query "
+        qry = self.ask("Given this PyTorch operation description, propose a 3–5 word DuckDuckGo search query "
             "to find AMD HIP kernel examples or optimization tips:\n\n"
             f"{torch_expl}\n"
-            "</thinking>"
         ).strip().strip('"')
 
         snippets = []

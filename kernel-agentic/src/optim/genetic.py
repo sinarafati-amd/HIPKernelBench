@@ -29,11 +29,27 @@ toolbox.register("mutate", tools.mutUniformInt, low=0, up=len(RANGE["block_size"
 toolbox.register("select", tools.selTournament, tournsize=3)
 
 class GeneticOpt:
-    def __init__(self, pop_size=16, ngen=20):
-        self.pop      = toolbox.population(n=pop_size)
-        self.ngen     = ngen
-        self.cur_gen  = 0
-        self.cursor   = 0                # which individual is running
+    def __init__(self, space: Dict[str,List[Any]], pop_size=16, ngen=20):
+        # build your toolbox.RANGE dynamically
+        from deap import base, creator, tools
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+        creator.create("Individual", list,   fitness=creator.FitnessMax)
+        self.keys   = list(space.keys())
+        self.range  = space
+        toolbox      = base.Toolbox()
+        toolbox.register("individual", 
+                         lambda: creator.Individual([random.choice(self.range[k]) 
+                                                     for k in self.keys]))
+        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+        toolbox.register("mate", tools.cxUniform, indpb=0.5)
+        toolbox.register("mutate", tools.mutUniformInt, 
+                          low=0, up=len(self.range[self.keys[0]])-1, indpb=0.2)
+        toolbox.register("select", tools.selTournament, tournsize=3)
+        self.pop     = toolbox.population(n=pop_size)
+        self.toolbox = toolbox
+        self.ngen    = ngen
+        self.cur_gen = 0
+        self.cursor  = 0
     # ----------------------------------------------
     def next_params(self) -> Dict[str,Any] | None:
         if self.cur_gen >= self.ngen:

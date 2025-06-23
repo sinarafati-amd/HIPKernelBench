@@ -1,8 +1,14 @@
-dev-setup:
-	pip install -r requirements.txt
 
+
+lang ?= hip
+
+.PHONY: vector-store
 vector-store:
-	python -m src.data.build_vector_store --pdf docs/hip_spec.pdf
+	python -m src.data.build_vector_store --language "$(lang)"
+
+
+dev-setup:
+	uv pip install -r requirements.txt
 
 run:
 	@mkdir -p logs

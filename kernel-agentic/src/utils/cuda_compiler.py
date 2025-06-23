@@ -4,16 +4,16 @@ from ..utils.error_digester import digest
 
 CFG = yaml.safe_load(open("config.yml"))
 
-def compile_hip(source_code: str) -> str:
-    path = tempfile.mkdtemp(prefix="hip_")
-    hip_file = os.path.join(path, "kernel.hip")
-    print('gpu code at: '+hip_file)
+def compile_cuda(source_code: str) -> str:
+    path = tempfile.mkdtemp(prefix="cuda_")
+    cuda_file = os.path.join(path, "kernel.cu")
+    print('gpu code at: '+cuda_file)
     print('*'*120)
     
-    with open(hip_file, "w") as f:
+    with open(cuda_file, "w") as f:
         f.write(source_code)
     out_name = os.path.join(path, "kernel.out")
-    cmd = ["hipcc", hip_file, "-o", out_name]
+    cmd = ["nvcc", cuda_file, "-o", out_name]
     try:
         output = subprocess.run(cmd, capture_output=True, text=True, env=os.environ)
         stdout = output.stdout
@@ -29,5 +29,4 @@ def compile_hip(source_code: str) -> str:
         log.append({"event": "compile_error", "stdout": stdout, "stderr": stderr})
         raise RuntimeError(digest(e.output))
 
-    return out_name, stdout, stderr, hip_file
-
+    return out_name, stdout, stderr, cuda_file

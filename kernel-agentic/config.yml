@@ -3,7 +3,7 @@
 Pipeline:
   rag_enabled: true
   online_search: false
-  kernel_lang: hip
+  kernel_lang: hip  # Options: hip, cuda, triton
   use_bayes: true
   use_genetic: true
   enable_correctness: false 
@@ -14,16 +14,30 @@ Pipeline:
     ngen: 20
 
 
-
 openai:
   base_url: https://llm-api.amd.com
   api_key:  fe76c012dd51448cb0ec5f1e86c298a9                       
-  api_version: 2024-12-01-preview
-  model_name: o3-mini
+  api_version: 2024-02-01
+  embedding_api_version: 2024-02-01
+  model_name: GPT-4o  # default model for agents not explicitly configured
+  embedding_model: Text-Embedding-3-Small  # embedding model for RAG
   headers:
     Ocp-Apim-Subscription-Key: fe76c012dd51448cb0ec5f1e86c298a9      
     user: sirafati       
-  temperature: 0.01
+  temperature: 0.1
+  
+  # Agent-specific model configurations
+  agent_models:
+    torch_analyser:
+      api_version: 2024-02-01
+      model_name: GPT-4o
+      temperature: 0.1
+    kernel_generator:
+      api_version: 2024-02-01 
+      model_name: GPT-4o
+      temperature: 0.2
+
+  
 
 gpu_specs:
   arch: null
@@ -36,7 +50,7 @@ eval:
   n_trial: 3
 
 stopping:
-  min_iters: 3          # never exit earlier than this
+  min_iters: 2          # never exit earlier than this
   max_iters: 4          # absolute cap (safety valve)
   target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
@@ -44,21 +58,35 @@ stopping:
   max_failures: 4       # bail if compile/run failed this many times in a row
   
 hip:
- 
   gpu_arch: gfx1100
   block_size: 256      
-  n_samples: 2
+  n_samples: 1
+
+# CUDA configuration (used when kernel_lang: cuda)
+cuda:
+  gpu_arch: sm_75      # Target compute capability 
+  block_size: 256      
+  n_samples: 1
+
+# Triton configuration (used when kernel_lang: triton)  
+triton:
+  block_size: 256      
+  n_samples: 1
   
 rag:
   chunk_size: 1024
   n_neighbors: 8
   similarity_threshold: 0.75
-  text_store:    vector_store/text.index
-  code_store:    vector_store/code.index
+  # Language-specific vector stores (automatically selected based on kernel_lang)
+  # hip:    vector_store/hip/
+  # cuda:   vector_store/cuda/
+  # triton: vector_store/triton/
   top_k_semantic: 8
   top_k_bm25:     6
   rerank_cutoff:  8
   final_tokens:  800
+  breakpoint_threshold_amount: 95.0
+
   
 logging:
   history_file: logs/generation_history.jsonl

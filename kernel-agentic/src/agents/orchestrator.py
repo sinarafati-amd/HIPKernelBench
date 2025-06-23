@@ -5,10 +5,10 @@ from typing import Dict, Any
 from .torch_analyser import TorchAnalyser
 from .baseline import _baseline_latency
 from .rag_researcher import RAGResearcher
-from .hip_generator import HIPGenerator
+from .kernel_generator import KernelGenerator
 from .executor import Executor
 from ..utils.logger import log
-from ..utils.hip_compiler import compile_hip
+from ..utils.kernel_compiler import compile_kernel
 from ..utils.rocprof_parser import profile
 from .search_agent import SearchAgent
 
@@ -64,11 +64,15 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     # ---- helpers -----------------------------------------------------------
     torch_code = torch_path.read_text()
+    
+    # Get kernel language from config
+    kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+    
     analyser   = TorchAnalyser()
-    researcher = RAGResearcher()
+    researcher = RAGResearcher(kernel_lang=kernel_lang)  # Language-specific RAG
     searcher   = SearchAgent()
-    generator  = HIPGenerator()
-    runner     = Executor()
+    generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
+    runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
 
     torch_expl = analyser.analyse(torch_code)
     baseline_us= _baseline_latency(torch_file, n_trial=2)
@@ -79,25 +83,35 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     i, no_gain, fails = 0, 0, 0
     feedback = ""
+    previous_kernel = ""  # Track previous kernel for iterations 2+
+
+    # ---------- build context -------------------------------------------
+    doc_ctx    = researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
+    search_ctx = searcher.search(torch_expl)  if PIPELINE_CFG['online_search'] else ''
+    
+    full_ctx= ""
+
+    if PIPELINE_CFG['rag_enabled']:
+        full_ctx  = full_ctx + "\n\n[Documentation Context]\n" + doc_ctx
+    if PIPELINE_CFG['online_search']:
+        full_ctx   = full_ctx + "\n\n[Internet Search Results]\n" + search_ctx
 
     while True:
         log.append({"event": "iteration_start", "iter": i})
 
-        # ---------- build context -------------------------------------------
-        doc_ctx    = researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
-        search_ctx = searcher.search(torch_expl)  if PIPELINE_CFG['online_search'] else ''
-        full_ctx   = doc_ctx + "\n\n## Internet Search Results ##\n" + search_ctx
-
-        user_prompt = generator._build_user_prompt(torch_expl + "\n\n" + torch_code,
-                                                   full_ctx, feedback)
-        hip_code = generator.generate(torch_expl + "\n\n" + torch_code,
-                                      full_ctx, feedback=feedback, iter_idx=i)
-
+        user_prompt = generator._build_user_prompt(torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code, full_ctx, feedback, previous_kernel)
+        kernel_code = generator.generate(torch_expl + "\n\n [Here is the PyTorch Code:]  \n\n" + torch_code, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
         # ---------- compile & run -------------------------------------------
         try:
-            stats, errors, hip_file = runner.run(hip_code)
+            stats, errors, kernel_file = runner.run(kernel_code)
+            print('*'*120)
+            print('stats:', stats)
+            print('errors:', errors)
+            print('kernel_file:', kernel_file)
+            print('*'*120)
+
             if CHK_NUM and not errors:
-                err = max_abs_err(torch_file, hip_file)
+                err = max_abs_err(torch_file, kernel_file)
                 errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
             fails = 0
         except Exception as exc:
@@ -117,27 +131,53 @@ def orchestrate(torch_file: str, iterations: int | None):
         speedup    = baseline_us / hip_us if hip_us != float("inf") else 0.0
         correct    = errors == ""
         # ---------- phase-1 stop conditions ---------------------------------
-        reached_target  = speedup >= target_speedup and correct
-        out_of_patience = no_gain >= patience_phase1 and i + 1 >= min_iters
-        hit_max_iters   = i + 1 >= max_iters
+        # reached_target  = speedup >= target_speedup and correct
+        # out_of_patience = no_gain >= patience_phase1 and i + 1 >= min_iters
+        # hit_max_iters   = i + 1 >= max_iters
+        # if reached_target or out_of_patience or hit_max_iters:
+        #     reason = ("target_speedup" if reached_target else
+        #               "no_improvement" if out_of_patience else "max_iters")
+        #     log.append({"event": "early_stop", "reason": reason,
+        #                 "iter": i, "speedup": speedup})
+        #     break
+        reached_target  = correct and (speedup >= target_speedup)
+        out_of_patience = correct and (no_gain   >= patience_phase1) and (i + 1 >= min_iters)
+        # stop on max iters *regardless* of correctness
+        hit_max_iters   = (i + 1) >= max_iters
+
         if reached_target or out_of_patience or hit_max_iters:
-            reason = ("target_speedup" if reached_target else
-                      "no_improvement" if out_of_patience else "max_iters")
-            log.append({"event": "early_stop", "reason": reason,
-                        "iter": i, "speedup": speedup})
+            reason = (
+                "target_speedup"    if reached_target
+                else "no_improvement" if out_of_patience
+                else "max_iters"
+            )
+            log.append({
+                "event" : "early_stop",
+                "reason": reason,
+                "iter"  : i,
+                "speedup": speedup,
+                "correct": correct
+            })
             break
 
         # ---------- keep a correct kernel? ----------------------------------
         if correct:
-            best_code  = Path(hip_file).read_text()
+            breakpoint()
+            best_code  = Path(kernel_file).read_text()
             best_us    = hip_us
             best_stats = {"iter": i, "stats": stats,
                           "speedup": speedup, "baseline_us": baseline_us}
-            shutil.copy(hip_file, run_dir / f"{torch_path.stem}_iter{i}.hip")
+            
+            # Get kernel language from config to set proper file extension
+            kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+            extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
+            ext = extension_map.get(kernel_lang, ".hip")
+            
+            shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_iter{i}{ext}")
             log.append({                         # SFT sample (phase-1)
                 "event"   : "sft_sample_phase1",
                 "prompt"  : torch_code,
-                "response": hip_code,
+                "response": kernel_code,
                 "iter"    : i,
                 "speedup" : speedup,
                 "hip_us"  : hip_us_raw,
@@ -159,12 +199,20 @@ def orchestrate(torch_file: str, iterations: int | None):
             "speedup"  : speedup,
             "hip_us"   : hip_us_raw,
             "prompt"   : user_prompt,
-            "response" : hip_code,
+            "response" : kernel_code,
             **(stats or {})
         })
-        feedback = json.dumps({"profile": stats, "correct": correct,"errors": errors})[:8000]
+        # feedback = json.dumps({"profile": stats, "correct": correct,"errors": errors})[:8000]
+        if errors:                                   
+            feedback = errors                      
+        else:                                        
+            feedback = json.dumps({"profile": stats,"correct": True})[:8000]
+        
+        # Store current kernel as previous for next iteration  
+        previous_kernel = kernel_code
+        
         i += 1
-    
+
     # ----------------  no correct kernel → abort whole run ------------------
     if best_code is None:
         log.append({"event": "no_valid_kernel", "torch": torch_file})
@@ -172,11 +220,28 @@ def orchestrate(torch_file: str, iterations: int | None):
     
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
+    op_type = analyser.classify(torch_expl)
+    if op_type == "elem":
+        search_space = {"block_size":[64,128,256,512]}
+    elif op_type == "reduce":
+        search_space = {"block_size":[64,128,256],
+                        "vector_width":[1,2,4]}
+    else:  # gemm/conv
+        search_space = {"block_size":[128,256,512],
+                        "tile_m":[8,16,32,64],
+                        "tile_n":[8,16,32,64]}
+                        
     if SEARCH_CFG.get("method", "bayes") == "bayes":
-        optimiser = BayesOpt(max_trials=SEARCH_CFG.get("max_trials", 50))
+        optimiser = BayesOpt(
+            max_trials=SEARCH_CFG.get("max_trials", 50),
+            space=search_space           
+        )
     else:
-        optimiser = GeneticOpt(pop_size=SEARCH_CFG.get("pop", 16),
-                               ngen=SEARCH_CFG.get("ngen", 20))
+        optimiser = GeneticOpt(
+            pop_size=SEARCH_CFG.get("pop", 16),
+            ngen=SEARCH_CFG.get("ngen", 20),
+            space=search_space          
+        )
     breakpoint()
     no_gain_hpo = 0
     while True:
@@ -189,7 +254,7 @@ def orchestrate(torch_file: str, iterations: int | None):
         patched_code = _apply_tunables(best_code, tunables)
 
         try:
-            stats, _, hip_file = runner.run(patched_code)
+            stats, _, kernel_file = runner.run(patched_code)
         except Exception as exc:
             log.append({"event":"hpo_compile_fail",
                         "params":tunables,"err":str(exc)})
@@ -209,7 +274,13 @@ def orchestrate(torch_file: str, iterations: int | None):
             best_code = patched_code
             best_stats= {"params":tunables,"stats":stats,
                          "speedup":speedup,"baseline_us":baseline_us}
-            shutil.copy(hip_file, run_dir / f"{torch_path.stem}_HPO_{int(speedup*100):03}.hip")
+            
+            # Get proper file extension for current kernel language
+            kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+            extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
+            ext = extension_map.get(kernel_lang, ".hip")
+            
+            shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_HPO_{int(speedup*100):03}{ext}")
             log.append({                 # SFT sample (phase-2)
                 "event"   : "sft_sample_hpo",
                 "prompt"  : torch_code,
@@ -234,7 +305,12 @@ def orchestrate(torch_file: str, iterations: int | None):
     #  final persistence
     # =========================================================================
     if best_code:
-        best_path = run_dir / f"{torch_path.stem}_best.hip"
+        # Get proper file extension for current kernel language
+        kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+        extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
+        ext = extension_map.get(kernel_lang, ".hip")
+        
+        best_path = run_dir / f"{torch_path.stem}_best{ext}"
         best_path.write_text(best_code)
         with best_path.with_suffix(".json").open("w") as fp:
             json.dump(best_stats, fp, indent=2)
