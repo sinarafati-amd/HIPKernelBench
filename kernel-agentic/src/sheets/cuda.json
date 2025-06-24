@@ -1,0 +1,134 @@
+{
+  "kernels": [
+    {
+      "name": "elementwise_add",
+      "pytorch": "out = a + b",
+      "kernel": "__global__ void add_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = a[idx] + b[idx];}"
+    },
+    {
+      "name": "elementwise_mul",
+      "pytorch": "out = a * b",
+      "kernel": "__global__ void mul_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = a[idx] * b[idx];}"
+    },
+    {
+      "name": "elementwise_sub",
+      "pytorch": "out = a - b",
+      "kernel": "__global__ void sub_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = a[idx] - b[idx];}"
+    },
+    {
+      "name": "elementwise_div",
+      "pytorch": "out = a / b",
+      "kernel": "__global__ void div_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = a[idx] / b[idx];}"
+    },
+    {
+      "name": "elementwise_exp",
+      "pytorch": "out = torch.exp(x)",
+      "kernel": "__global__ void exp_kernel(const float* __restrict__ x, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = expf(x[idx]);}"
+    },
+    {
+      "name": "sigmoid",
+      "pytorch": "out = torch.sigmoid(x)",
+      "kernel": "__global__ void sigmoid_kernel(const float* __restrict__ x, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n){float val = x[idx]; out[idx] = 1.0f / (1.0f + expf(-val));}}"
+    },
+    {
+      "name": "gelu",
+      "pytorch": "out = torch.nn.functional.gelu(x)",
+      "kernel": "__global__ void gelu_kernel(const float* __restrict__ x, float* __restrict__ out, int n){const float sqrt1_2 = 0.70710678f; int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n){float val = x[idx]; out[idx] = 0.5f * val * (1.0f + erff(val * sqrt1_2));}}"
+    },
+    {
+      "name": "tanh",
+      "pytorch": "out = torch.tanh(x)",
+      "kernel": "__global__ void tanh_kernel(const float* __restrict__ x, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = tanhf(x[idx]);}"
+    },
+    {
+      "name": "fused_bias_add_relu",
+      "pytorch": "out = torch.relu(x + bias)",
+      "kernel": "__global__ void bias_relu_kernel(const float* __restrict__ x, const float* __restrict__ bias, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n){float val = x[idx] + bias[idx]; out[idx] = val > 0.0f ? val : 0.0f;}}"
+    },
+    {
+      "name": "reduction_sum",
+      "pytorch": "out = x.sum(dim)",
+      "kernel": "__global__ void reduce_sum_kernel(const float* __restrict__ x, float* __restrict__ out, int N){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < N) mySum = x[i] + (i + blockDim.x < N ? x[i + blockDim.x] : 0); sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) out[blockIdx.x] = sdata[0];}"
+    },
+    {
+      "name": "reduction_max",
+      "pytorch": "out = x.max(dim)",
+      "kernel": "__global__ void reduce_max_kernel(const float* __restrict__ x, float* __restrict__ out, int N){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float myMax = -FLT_MAX; if(i < N) myMax = fmaxf(x[i], (i + blockDim.x < N ? x[i + blockDim.x] : -FLT_MAX)); sdata[tid] = myMax; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] = fmaxf(sdata[tid], sdata[tid + s]); __syncthreads();} if(tid == 0) out[blockIdx.x] = sdata[0];}"
+    },
+    {
+      "name": "reduction_mean",
+      "pytorch": "out = x.mean(dim)",
+      "kernel": "__global__ void reduce_mean_kernel(const float* __restrict__ x, float* __restrict__ out, int n){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < n) mySum = x[i] + (i + blockDim.x < n ? x[i + blockDim.x] : 0); sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) out[blockIdx.x] = sdata[0] / n;}"
+    },
+    {
+      "name": "argmax",
+      "pytorch": "values, indices = x.max(dim)",
+      "kernel": "__global__ void argmax_kernel(const float* __restrict__ x, float* __restrict__ vals, int* __restrict__ idxs, int stride){extern __shared__ float svals[]; extern __shared__ int sidx[]; int tid = threadIdx.x; int base = blockIdx.x * stride; float best = -FLT_MAX; int best_i = -1; for(int i = tid; i < stride; i += blockDim.x){float v = x[base + i]; if(v > best){best = v; best_i = i;}} svals[tid] = best; sidx[tid] = best_i; __syncthreads(); for(int s = blockDim.x>>1; s>0; s>>=1){if(tid < s && svals[tid + s] > svals[tid]){svals[tid] = svals[tid + s]; sidx[tid] = sidx[tid + s];} __syncthreads();} if(tid == 0){vals[blockIdx.x] = svals[0]; idxs[blockIdx.x] = sidx[0];}}"
+    },
+    {
+      "name": "prefix_sum_scan",
+      "pytorch": "out = x.cumsum(dim)",
+      "kernel": "__global__ void scan_kernel(const int* __restrict__ x, int* __restrict__ out){extern __shared__ int temp[]; int th = threadIdx.x; int offset = 1; temp[2*th] = x[2*th]; temp[2*th+1] = x[2*th+1]; for(int d = blockDim.x; d > 0; d >>= 1){__syncthreads(); if(th < d){int ai = offset*(2*th+1)-1; int bi = offset*(2*th+2)-1; temp[bi] += temp[ai];} offset *= 2;} if(th==0) temp[2*blockDim.x-1] = 0; for(int d=1; d<2*blockDim.x; d*=2){offset >>=1; __syncthreads(); if(th < d){int ai = offset*(2*th+1)-1; int bi = offset*(2*th+2)-1; int t = temp[ai]; temp[ai] = temp[bi]; temp[bi] += t;}} __syncthreads(); out[2*th] = temp[2*th]; out[2*th+1] = temp[2*th+1];}"
+    },
+    {
+      "name": "matrix_multiplication_gemm",
+      "pytorch": "out = torch.matmul(A, B)",
+      "kernel": "__global__ void gemm_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C, int M, int N, int K){int row = blockIdx.y * blockDim.y + threadIdx.y; int col = blockIdx.x * blockDim.x + threadIdx.x; float sum = 0.0f; if(row < M && col < N){for(int k = 0; k < K; ++k){sum += A[row * K + k] * B[k * N + col];} C[row * N + col] = sum;}}"
+    },
+    {
+      "name": "conv2d_forward",
+      "pytorch": "out = torch.nn.functional.conv2d(x, weight, bias, stride, padding)",
+      "kernel": "__global__ void conv2d_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int H, int W, int K, int R, int S, int P, int Q){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; int tid = threadIdx.x; float acc = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){for(int s=0;s<S;++s){int h = p + r; int w_ = q + s; if(h < H && w_ < W){int x_idx = ((n*C + c)*H + h)*W + w_; int w_idx = ((k*C + c)*R + r)*S + s; acc += x[x_idx]*w[w_idx];}}} if(tid==0) y[((n*K + k)*P + p)*Q + q] = acc;}"
+    },
+    {
+      "name": "max_pool2d_forward",
+      "pytorch": "out = torch.nn.functional.max_pool2d(x, kernel_size, stride, padding)",
+      "kernel": "__global__ void maxpool2d_kernel(const float* __restrict__ x, float* __restrict__ y, int N, int C, int H, int W, int KH, int KW, int P, int Q){int n = blockIdx.z; int c = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; float max_val = -FLT_MAX; for(int kh=0; kh<KH; ++kh){for(int kw=0; kw<KW; ++kw){int h = p + kh; int w_ = q + kw; if(h < H && w_ < W){max_val = fmaxf(max_val, x[((n*C + c)*H + h)*W + w_]);}}} y[((n*C + c)*P + p)*Q + q] = max_val;}"
+    },
+    {
+      "name": "avg_pool2d_forward",
+      "pytorch": "out = torch.nn.functional.avg_pool2d(x, kernel_size, stride, padding)",
+      "kernel": "__global__ void avgpool2d_kernel(const float* __restrict__ x, float* __restrict__ y, int N, int C, int H, int W, int KH, int KW, int P, int Q){int n = blockIdx.z; int c = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; float sum = 0.0f; int count = 0; for(int kh=0; kh<KH; ++kh){for(int kw=0; kw<KW; ++kw){int h = p + kh; int w_ = q + kw; if(h < H && w_ < W){sum += x[((n*C + c)*H + h)*W + w_]; count++;}}} y[((n*C + c)*P + p)*Q + q] = sum / count;}"
+    },
+    {
+      "name": "softmax",
+      "pytorch": "out = torch.softmax(x, dim=-1)",
+      "kernel": "__global__ void softmax_kernel(const float* __restrict__ x, float* __restrict__ y, int n){extern __shared__ float smem[]; int tid = threadIdx.x; float max_val = -FLT_MAX; for(int i=tid;i<n;i+=blockDim.x){max_val = fmaxf(max_val,x[i]);} smem[tid] = max_val; __syncthreads(); for(int s = blockDim.x>>1; s>0; s>>=1){if(tid < s) smem[tid] = fmaxf(smem[tid], smem[tid + s]); __syncthreads();} max_val = smem[0]; float sum = 0.0f; for(int i=tid;i<n;i+=blockDim.x){sum += expf(x[i]-max_val);} smem[tid] = sum; __syncthreads(); for(int s = blockDim.x>>1; s>0; s>>=1){if(tid < s) smem[tid] += smem[tid + s]; __syncthreads();} float denom = smem[0]; for(int i=tid;i<n;i+=blockDim.x){y[i] = expf(x[i]-max_val)/denom;}}"
+    },
+    {
+      "name": "batchnorm_forward",
+      "pytorch": "y = torch.batch_norm(x, running_mean, running_var, weight, bias, training)",
+      "kernel": "__global__ void batchnorm_fw_kernel(const float* __restrict__ x, float* __restrict__ y, const float* __restrict__ mean, const float* __restrict__ var, const float* __restrict__ gamma, const float* __restrict__ beta, float eps, int N){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < N){float norm = (x[idx] - mean[0]) * rsqrtf(var[0] + eps); y[idx] = gamma[0]*norm + beta[0];}}"
+    },
+    {
+      "name": "layernorm_forward",
+      "pytorch": "y = torch.nn.functional.layer_norm(x, normalized_shape, weight, bias, eps)",
+      "kernel": "__global__ void layernorm_fw_kernel(const float* __restrict__ x, float* __restrict__ y, const float* __restrict__ gamma, const float* __restrict__ beta, int M, int N, float eps){extern __shared__ float sm[]; int row = blockIdx.x; int tid = threadIdx.x; float mean = 0.0f; for(int i=tid;i<N;i+=blockDim.x){mean += x[row*N + i];} sm[tid] = mean; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthreads();} mean = sm[0] / N; float var = 0.0f; for(int i=tid;i<N;i+=blockDim.x){float v = x[row*N + i] - mean; var += v*v;} sm[tid] = var; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthreads();} var = sm[0]/N; float inv_std = rsqrtf(var + eps); for(int i=tid;i<N;i+=blockDim.x){int idx = row*N + i; float norm = (x[idx]-mean)*inv_std; y[idx] = norm*gamma[i] + beta[i];}}"
+    },
+    {
+      "name": "dropout_forward",
+      "pytorch": "y = torch.nn.functional.dropout(x, p, training)",
+      "kernel": "__global__ void dropout_kernel(const float* __restrict__ x, float* __restrict__ y, unsigned int seed, float p, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n){curandStatePhilox4_32_10_t state; curand_init(seed, idx, 0, &state); float r = curand_uniform(&state); float scale = r > p ? 1.0f / (1.0f - p) : 0.0f; y[idx] = x[idx] * scale;}}"
+    },
+    {
+      "name": "transpose",
+      "pytorch": "out = x.transpose(-2, -1)",
+      "kernel": "__global__ void transpose_kernel(const float* __restrict__ x, float* __restrict__ y, int rows, int cols){int i = blockIdx.y * blockDim.y + threadIdx.y; int j = blockIdx.x * blockDim.x + threadIdx.x; if(i < rows && j < cols){y[j * rows + i] = x[i * cols + j];}}"
+    },
+    {
+      "name": "gather",
+      "pytorch": "out = x.gather(dim, index)",
+      "kernel": "__global__ void gather_kernel(const float* __restrict__ src, const int64_t* __restrict__ idx, float* __restrict__ dst, int n){int i = blockIdx.x * blockDim.x + threadIdx.x; if(i < n){dst[i] = src[idx[i]];}}"
+    },
+    {
+      "name": "scatter_add",
+      "pytorch": "x.scatter_add_(dim, index, src)",
+      "kernel": "__global__ void scatter_add_kernel(float* __restrict__ dst, const int64_t* __restrict__ idx, const float* __restrict__ src, int n){int i = blockIdx.x * blockDim.x + threadIdx.x; if(i < n){atomicAdd(&dst[idx[i]], src[i]);}}"
+    },
+    {
+      "name": "dot_product",
+      "pytorch": "out = torch.dot(a, b)",
+      "kernel": "__global__ void dot_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out, int N){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < N){mySum = a[i]*b[i] + (i + blockDim.x < N ? a[i + blockDim.x]*b[i + blockDim.x] : 0);} sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) atomicAdd(out, sdata[0]);}"
+    }
+  ]
+}

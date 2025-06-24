@@ -6,3 +6,6 @@ kernel-agentic/logs/*
 kernel-agentic/lora-grpo/*
 kernel-agentic/logs_back
 kernel-agentic/src/agents/search_agent.py
+kernel-agentic/hinge_loss_bay_main/*
+kernel-agentic/hinge_loss_ge_1/*
+kernel-agentic/torch_codes/*

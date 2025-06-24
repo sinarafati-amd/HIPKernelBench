@@ -6,7 +6,7 @@ import yaml, random
 import os 
 from pathlib import Path
 from pathlib import Path
-
+import re
 _PROMPT_DIR = Path(__file__).parent
 
 CFG = yaml.safe_load(open("config.yml"))
@@ -116,17 +116,6 @@ class KernelGenerator(BaseAgent):
         # ------------------------------------------------------------------
         user_content = self._build_user_prompt(torch_expl, doc_context, feedback, previous_kernel, iter_idx)
         messages     = [self.system_prompt, {"role": "user", "content": user_content}]
-        print('@'* 80)
-        print(feedback)
-        print('-'* 80)
-        print(f"Iter {iter_idx} - Generating {self.kernel_lang.upper()} kernel")
-        print('-'* 80)
-        print(self.system_prompt)
-        print('-'* 80)
-        print("User message:")
-        print('-'* 80)  
-        print(user_content)
-        print('@'* 80)
 
         # ------------------------------------------------------------------
         # 3) Sample one candidate for the naïve pass, best-of-N thereafter
@@ -146,11 +135,17 @@ class KernelGenerator(BaseAgent):
             temperature            = temperature,
             agent_name             = "kernel_generator"  # Pass agent name for model selection
         )
-        kernel_src  = resp.choices[0].message.content
-        if kernel_src.startswith("```"):
-            kernel_src = kernel_src.split("```")[1].replace("```", "").strip()
+        
+        raw = resp.choices[0].message.content
+        raw = re.sub(r'^```[^\n]*\n', '', raw)
+        raw = re.sub(r'\n```$', '', raw)
 
+        lines = raw.splitlines()
+        if lines and re.fullmatch(r'[A-Za-z0-9_+\-]+', lines[0]):
+            lines.pop(0)
+        kernel_src = "\n".join(lines).strip()
         last_usage = resp.usage
+
 
         # ------------------------------------------------------------------
         # 5) Log and return

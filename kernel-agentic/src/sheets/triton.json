@@ -1,0 +1,119 @@
+{
+  "kernels": [
+    {
+      "name": "elementwise_add",
+      "pytorch": "out = a + b",
+      "kernel": "@triton.jit\ndef add_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask)\n    b = tl.load(b_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, a + b, mask=mask)"
+    },
+    {
+      "name": "elementwise_mul",
+      "pytorch": "out = a * b",
+      "kernel": "@triton.jit\ndef mul_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask)\n    b = tl.load(b_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, a * b, mask=mask)"
+    },
+    {
+      "name": "elementwise_sub",
+      "pytorch": "out = a - b",
+      "kernel": "@triton.jit\ndef sub_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask)\n    b = tl.load(b_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, a - b, mask=mask)"
+    },
+    {
+      "name": "elementwise_div",
+      "pytorch": "out = a / b",
+      "kernel": "@triton.jit\ndef div_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask)\n    b = tl.load(b_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, a / b, mask=mask)"
+    },
+    {
+      "name": "elementwise_exp",
+      "pytorch": "out = torch.exp(x)",
+      "kernel": "@triton.jit\ndef exp_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, tl.exp(x), mask=mask)"
+    },
+    {
+      "name": "sigmoid",
+      "pytorch": "out = torch.sigmoid(x)",
+      "kernel": "@triton.jit\ndef sigmoid_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, 1.0 / (1.0 + tl.exp(-x)), mask=mask)"
+    },
+    {
+      "name": "gelu",
+      "pytorch": "out = torch.nn.functional.gelu(x)",
+      "kernel": "@triton.jit\ndef gelu_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    inv_sqrt2 = 0.70710678\n    y = 0.5 * x * (1.0 + tl.erf(x * inv_sqrt2))\n    tl.store(out_ptr + offs, y, mask=mask)"
+    },
+    {
+      "name": "tanh",
+      "pytorch": "out = torch.tanh(x)",
+      "kernel": "@triton.jit\ndef tanh_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, tl.tanh(x), mask=mask)"
+    },
+    {
+      "name": "fused_bias_add_relu",
+      "pytorch": "out = torch.relu(x + bias)",
+      "kernel": "@triton.jit\ndef bias_relu_kernel(x_ptr, bias_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    b = tl.load(bias_ptr + offs, mask=mask)\n    y = tl.maximum(x + b, 0)\n    tl.store(out_ptr + offs, y, mask=mask)"
+    },
+    {
+      "name": "reduction_sum",
+      "pytorch": "out = x.sum(dim)",
+      "kernel": "@triton.jit\ndef reduce_sum_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=0.0)\n    acc = tl.sum(x, axis=0)\n    tl.store(out_ptr + pid, acc)"
+    },
+    {
+      "name": "reduction_max",
+      "pytorch": "out = x.max(dim)",
+      "kernel": "@triton.jit\ndef reduce_max_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=-1e30)\n    acc = tl.max(x, axis=0)\n    tl.store(out_ptr + pid, acc)"
+    },
+    {
+      "name": "reduction_mean",
+      "pytorch": "out = x.mean(dim)",
+      "kernel": "@triton.jit\ndef reduce_mean_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=0.0)\n    acc = tl.sum(x, axis=0) / n\n    tl.store(out_ptr + pid, acc)"
+    },
+    {
+      "name": "argmax",
+      "pytorch": "values, indices = x.max(dim)",
+      "kernel": "@triton.jit\ndef argmax_kernel(x_ptr, val_ptr, idx_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=-1e30)\n    max_val = tl.max(x, axis=0)\n    max_idx = tl.argmax(x)\n    tl.store(val_ptr + pid, max_val)\n    tl.store(idx_ptr + pid, max_idx)"
+    },
+    {
+      "name": "prefix_sum_scan",
+      "pytorch": "out = x.cumsum(dim)",
+      "kernel": "@triton.jit\ndef scan_kernel(x_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=0)\n    scan = tl.cumsum(x)\n    tl.store(out_ptr + offs, scan, mask=mask)"
+    },
+    {
+      "name": "matrix_multiplication_gemm",
+      "pytorch": "out = torch.matmul(A, B)",
+      "kernel": "@triton.jit\ndef gemm_kernel(A_ptr, B_ptr, C_ptr, M, N, K, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr):\n    pid_m = tl.program_id(0)\n    pid_n = tl.program_id(1)\n    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)\n    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)\n    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)\n    for k in range(0, K, BLOCK_K):\n        offs_k = k + tl.arange(0, BLOCK_K)\n        a = tl.load(A_ptr + (offs_m[:, None] * K + offs_k[None, :]), mask=(offs_m[:, None] < M) & (offs_k[None, :] < K), other=0.0)\n        b = tl.load(B_ptr + (offs_k[:, None] * N + offs_n[None, :]), mask=(offs_k[:, None] < K) & (offs_n[None, :] < N), other=0.0)\n        acc += tl.dot(a, b)\n    tl.store(C_ptr + (offs_m[:, None] * N + offs_n[None, :]), acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))"
+    },
+    {
+      "name": "softmax",
+      "pytorch": "out = torch.softmax(x, dim=-1)",
+      "kernel": "@triton.jit\ndef softmax_kernel(x_ptr, y_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=-1e30)\n    x_max = tl.max(x, axis=0)\n    x = tl.exp(x - x_max)\n    denom = tl.sum(x, axis=0)\n    tl.store(y_ptr + offs, x / denom, mask=mask)"
+    },
+    {
+      "name": "batchnorm_forward",
+      "pytorch": "y = torch.batch_norm(x, running_mean, running_var, weight, bias, training)",
+      "kernel": "@triton.jit\ndef batchnorm_fw_kernel(x_ptr, y_ptr, mean_ptr, var_ptr, gamma_ptr, beta_ptr, eps, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask, other=0)\n    mean = tl.load(mean_ptr)\n    var = tl.load(var_ptr)\n    norm = (x - mean) * tl.rsqrt(var + eps)\n    gamma = tl.load(gamma_ptr)\n    beta = tl.load(beta_ptr)\n    tl.store(y_ptr + offs, norm * gamma + beta, mask=mask)"
+    },
+    {
+      "name": "layernorm_forward",
+      "pytorch": "y = torch.nn.functional.layer_norm(x, normalized_shape, weight, bias, eps)",
+      "kernel": "@triton.jit\ndef layernorm_fw_kernel(x_ptr, y_ptr, gamma_ptr, beta_ptr, M, N, eps, BLOCK_SIZE: tl.constexpr):\n    row = tl.program_id(0)\n    offs = row * N + tl.arange(0, BLOCK_SIZE)\n    mask = tl.arange(0, BLOCK_SIZE) < N\n    x = tl.load(x_ptr + offs, mask=mask, other=0)\n    mean = tl.mean(x, axis=0)\n    var = tl.mean((x - mean) ** 2, axis=0)\n    inv_std = tl.rsqrt(var + eps)\n    gamma = tl.load(gamma_ptr + tl.arange(0, BLOCK_SIZE), mask=mask, other=1)\n    beta  = tl.load(beta_ptr  + tl.arange(0, BLOCK_SIZE), mask=mask, other=0)\n    y = (x - mean) * inv_std * gamma + beta\n    tl.store(y_ptr + offs, y, mask=mask)"
+    },
+    {
+      "name": "dropout_forward",
+      "pytorch": "y = torch.nn.functional.dropout(x, p, training)",
+      "kernel": "@triton.jit\ndef dropout_kernel(x_ptr, y_ptr, rng_state_ptr, p, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    x = tl.load(x_ptr + offs, mask=mask)\n    rng = tl.rand(rng_state_ptr, (BLOCK_SIZE,))\n    keep = rng > p\n    scale = 1.0 / (1.0 - p)\n    tl.store(y_ptr + offs, x * keep * scale, mask=mask)"
+    },
+    {
+      "name": "transpose",
+      "pytorch": "out = x.transpose(-2, -1)",
+      "kernel": "@triton.jit\ndef transpose_kernel(x_ptr, y_ptr, rows, cols, BLOCK_ROWS: tl.constexpr, BLOCK_COLS: tl.constexpr):\n    pid_row = tl.program_id(0)\n    pid_col = tl.program_id(1)\n    offs_row = pid_row * BLOCK_ROWS + tl.arange(0, BLOCK_ROWS)\n    offs_col = pid_col * BLOCK_COLS + tl.arange(0, BLOCK_COLS)\n    mask = (offs_row[:, None] < rows) & (offs_col[None, :] < cols)\n    x = tl.load(x_ptr + offs_row[:, None] * cols + offs_col[None, :], mask=mask, other=0)\n    tl.store(y_ptr + offs_col[:, None] * rows + offs_row[None, :], x.T, mask=mask)"
+    },
+    {
+      "name": "gather",
+      "pytorch": "out = x.gather(dim, index)",
+      "kernel": "@triton.jit\ndef gather_kernel(src_ptr, idx_ptr, dst_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    indices = tl.load(idx_ptr + offs, mask=mask, other=0)\n    values = tl.load(src_ptr + indices, mask=mask)\n    tl.store(dst_ptr + offs, values, mask=mask)"
+    },
+    {
+      "name": "scatter_add",
+      "pytorch": "x.scatter_add_(dim, index, src)",
+      "kernel": "@triton.jit\ndef scatter_add_kernel(dst_ptr, idx_ptr, src_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    idx = tl.load(idx_ptr + offs, mask=mask, other=0)\n    src = tl.load(src_ptr + offs, mask=mask, other=0)\n    tl.atomic_add(dst_ptr + idx, src, mask=mask)"
+    },
+    {
+      "name": "dot_product",
+      "pytorch": "out = torch.dot(a, b)",
+      "kernel": "@triton.jit\ndef dot_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask, other=0)\n    b = tl.load(b_ptr + offs, mask=mask, other=0)\n    acc = tl.sum(a * b, axis=0)\n    tl.store(out_ptr, acc, mask=pid == 0)"
+    }
+  ]
+}

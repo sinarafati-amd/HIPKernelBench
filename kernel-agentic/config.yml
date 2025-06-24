@@ -1,14 +1,15 @@
 # Global configuration
 
 Pipeline:
-  rag_enabled: true
+  rag_enabled: false
   online_search: false
+  cheat_sheet: true
   kernel_lang: hip  # Options: hip, cuda, triton
-  use_bayes: true
-  use_genetic: true
   enable_correctness: false 
   search:
-    method: bayes         # bayes | genetic
+    enabled: true
+    method: genetic         # bayes | genetic
+    patience: 16             # for genetic
     max_trials: 60        # for Bayesian
     pop: 16               # for GA
     ngen: 20
@@ -17,7 +18,7 @@ Pipeline:
 openai:
   base_url: https://llm-api.amd.com
   api_key:  fe76c012dd51448cb0ec5f1e86c298a9                       
-  api_version: 2024-02-01
+  api_version: 2024-02-01 
   embedding_api_version: 2024-02-01
   model_name: GPT-4o  # default model for agents not explicitly configured
   embedding_model: Text-Embedding-3-Small  # embedding model for RAG
@@ -29,13 +30,13 @@ openai:
   # Agent-specific model configurations
   agent_models:
     torch_analyser:
-      api_version: 2024-02-01
-      model_name: GPT-4o
-      temperature: 0.1
-    kernel_generator:
       api_version: 2024-02-01 
       model_name: GPT-4o
-      temperature: 0.2
+      temperature: 0.01
+    kernel_generator:
+      api_version: 2024-12-01-preview
+      model_name: o3
+      temperature: 0.3
 
   
 
@@ -51,7 +52,7 @@ eval:
 
 stopping:
   min_iters: 2          # never exit earlier than this
-  max_iters: 4          # absolute cap (safety valve)
+  max_iters: 5          # absolute cap (safety valve)
   target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
   patience: 4           # end if no ε-better for these many iterations

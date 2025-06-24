@@ -27,7 +27,8 @@ def compile_hip(source_code: str) -> str:
         stdout = e.output
         stderr = e.stderr
         log.append({"event": "compile_error", "stdout": stdout, "stderr": stderr})
-        raise RuntimeError(digest(e.output))
+        # raise RuntimeError(digest(e.output))
+        raise RuntimeError(e.output)
 
     return out_name, stdout, stderr, hip_file
 

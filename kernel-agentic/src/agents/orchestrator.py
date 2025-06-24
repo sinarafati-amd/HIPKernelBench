@@ -11,11 +11,12 @@ from ..utils.logger import log
 from ..utils.kernel_compiler import compile_kernel
 from ..utils.rocprof_parser import profile
 from .search_agent import SearchAgent
-
+import re
 from collections import deque
 from ..eval.correctness import max_abs_err
 from src.optim.bayes   import BayesOpt
 from src.optim.genetic import GeneticOpt
+from pathlib import Path
 
 CFG = yaml.safe_load(open("config.yml"))
 STOP_CFG   = CFG["stopping"]
@@ -74,7 +75,44 @@ def orchestrate(torch_file: str, iterations: int | None):
     generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
     runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
 
-    torch_expl = analyser.analyse(torch_code)
+    torch_expl_raw = analyser.analyse(torch_code)
+    
+    # Decode the JSON response
+    try:
+        # Extract JSON from the response if it's wrapped in ```json blocks
+        json_match = re.search(r'```json\n(.*?)\n```', torch_expl_raw, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_str = torch_expl_raw
+        
+        torch_analysis = json.loads(json_str)
+        torch_expl = torch_analysis.get("explanation", "")
+        kernels = torch_analysis.get("top_kernels", [])
+        
+    except (json.JSONDecodeError, AttributeError) as e:
+        print(f"Failed to decode torch analysis JSON: {e}")
+        torch_expl = torch_expl_raw
+        kernels = []
+
+    cheat_code = ""
+    path_sheets = os.path.join(Path(__file__).parent.parent, "sheets")
+    if os.path.exists(path_sheets):
+        if len(kernels) > 0:
+            kernel_sheet = os.path.join(path_sheets, kernel_lang + ".json")
+            with open(kernel_sheet, 'r') as f:
+                kernel_data = json.load(f)
+            # loop over all kernels and make one string with join \n pulling "name" and "kernel"
+            cheat_code = "\n   "
+            
+            for kernel_name in kernels:
+                # Find the kernel in the list of kernel dictionaries
+                for kernel_entry in kernel_data['kernels']:
+                    if kernel_entry.get('name') == kernel_name:
+                        # Format the string with name and kernel
+                        cheat_code += f"{kernel_entry['name']}: the torch code: \n\n {kernel_entry['pytorch']} \n\n and corresponding kernel code: \n\n {kernel_entry['kernel']}\n"
+                        break
+
     baseline_us= _baseline_latency(torch_file, n_trial=2)
 
     best_code: str | None   = None
@@ -98,18 +136,22 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     while True:
         log.append({"event": "iteration_start", "iter": i})
-
         user_prompt = generator._build_user_prompt(torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code, full_ctx, feedback, previous_kernel)
-        kernel_code = generator.generate(torch_expl + "\n\n [Here is the PyTorch Code:]  \n\n" + torch_code, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
+
+        code_input = torch_expl + "\n\n [Here is the PyTorch Code:]  \n\n" + torch_code
+        
+        if PIPELINE_CFG['cheat_sheet']:
+            if i == 0:
+                code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code
+            else:
+                code_input += "\n\n [Here are the available kernels to learn from:] \n\n"
+        else:
+            code_input += "\n\n [Here are the available kernels to learn from:] \n\n"
+        kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
         # ---------- compile & run -------------------------------------------
         try:
             stats, errors, kernel_file = runner.run(kernel_code)
-            print('*'*120)
-            print('stats:', stats)
-            print('errors:', errors)
-            print('kernel_file:', kernel_file)
-            print('*'*120)
-
+            print(errors)
             if CHK_NUM and not errors:
                 err = max_abs_err(torch_file, kernel_file)
                 errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
@@ -124,22 +166,15 @@ def orchestrate(torch_file: str, iterations: int | None):
                 return
             i += 1
             continue
-
+        if errors is None:
+            errors = ""
+        
         # ---------- metrics -------------------------------------------------
         hip_us_raw = _extract_latency_us(stats)
         hip_us     = hip_us_raw if hip_us_raw is not None else float("inf")
         speedup    = baseline_us / hip_us if hip_us != float("inf") else 0.0
-        correct    = errors == ""
+        correct    = errors is None or errors == "" 
         # ---------- phase-1 stop conditions ---------------------------------
-        # reached_target  = speedup >= target_speedup and correct
-        # out_of_patience = no_gain >= patience_phase1 and i + 1 >= min_iters
-        # hit_max_iters   = i + 1 >= max_iters
-        # if reached_target or out_of_patience or hit_max_iters:
-        #     reason = ("target_speedup" if reached_target else
-        #               "no_improvement" if out_of_patience else "max_iters")
-        #     log.append({"event": "early_stop", "reason": reason,
-        #                 "iter": i, "speedup": speedup})
-        #     break
         reached_target  = correct and (speedup >= target_speedup)
         out_of_patience = correct and (no_gain   >= patience_phase1) and (i + 1 >= min_iters)
         # stop on max iters *regardless* of correctness
@@ -158,33 +193,32 @@ def orchestrate(torch_file: str, iterations: int | None):
                 "speedup": speedup,
                 "correct": correct
             })
+            # ---------- keep a correct kernel? ----------------------------------
+            if correct:
+                best_code  = Path(kernel_file).read_text()
+                best_us    = hip_us
+                best_stats = {"iter": i, "stats": stats,
+                            "speedup": speedup, "baseline_us": baseline_us}
+                
+                # Get kernel language from config to set proper file extension
+                kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+                extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
+                ext = extension_map.get(kernel_lang, ".hip")
+                
+                shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_iter{i}{ext}")
+                log.append({                         # SFT sample (phase-1)
+                    "event"   : "sft_sample_phase1",
+                    "prompt"  : torch_code,
+                    "response": kernel_code,
+                    "iter"    : i,
+                    "speedup" : speedup,
+                    "hip_us"  : hip_us_raw,
+                })
+                log.append({"event":"phase1_complete","iter":i,"hip_us":hip_us})
+                break   # ───────  exit phase-1 ➜ phase-2  ───────
             break
-
-        # ---------- keep a correct kernel? ----------------------------------
-        if correct:
-            breakpoint()
-            best_code  = Path(kernel_file).read_text()
-            best_us    = hip_us
-            best_stats = {"iter": i, "stats": stats,
-                          "speedup": speedup, "baseline_us": baseline_us}
-            
-            # Get kernel language from config to set proper file extension
-            kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
-            extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
-            ext = extension_map.get(kernel_lang, ".hip")
-            
-            shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_iter{i}{ext}")
-            log.append({                         # SFT sample (phase-1)
-                "event"   : "sft_sample_phase1",
-                "prompt"  : torch_code,
-                "response": kernel_code,
-                "iter"    : i,
-                "speedup" : speedup,
-                "hip_us"  : hip_us_raw,
-            })
-            log.append({"event":"phase1_complete","iter":i,"hip_us":hip_us})
-            break   # ───────  exit phase-1 ➜ phase-2  ───────
-
+        
+       
         # bookkeeping for ‘no‐gain’
         if hip_us_raw is not None:
             improved = (best_us - hip_us) / best_us >= eps
@@ -213,16 +247,17 @@ def orchestrate(torch_file: str, iterations: int | None):
         
         i += 1
 
+
     # ----------------  no correct kernel → abort whole run ------------------
     if best_code is None:
         log.append({"event": "no_valid_kernel", "torch": torch_file})
         return
-    
+
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
     op_type = analyser.classify(torch_expl)
     if op_type == "elem":
-        search_space = {"block_size":[64,128,256,512]}
+        search_space = {"block_size":[64,128,256,512,32,1024],}
     elif op_type == "reduce":
         search_space = {"block_size":[64,128,256],
                         "vector_width":[1,2,4]}
@@ -242,65 +277,70 @@ def orchestrate(torch_file: str, iterations: int | None):
             ngen=SEARCH_CFG.get("ngen", 20),
             space=search_space          
         )
-    breakpoint()
     no_gain_hpo = 0
-    while True:
-        sample = optimiser.next_params()
-        if sample is None:
-            log.append({"event":"early_stop_hpo","reason":"budget_exhausted"})
-            break
 
-        tunables = {k: v for k, v in sample.items() if not k.startswith("_")}
-        patched_code = _apply_tunables(best_code, tunables)
+    if SEARCH_CFG['enabled']:
+        counter=0
+        while True:
+            counter+=1
+            print(f"Phase-2 HPO iteration {counter} for optimiser {optimiser.__class__.__name__}")
+            sample = optimiser.next_params()
+            if sample is None:
+                log.append({"event":"early_stop_hpo","reason":"budget_exhausted"})
+                break
 
-        try:
-            stats, _, kernel_file = runner.run(patched_code)
-        except Exception as exc:
-            log.append({"event":"hpo_compile_fail",
-                        "params":tunables,"err":str(exc)})
-            optimiser.update(sample.get("_trial") or sample.get("_ind"), 0.0)
-            continue
+            tunables = {k: v for k, v in sample.items() if not k.startswith("_")}
+            patched_code = _apply_tunables(best_code, tunables)
 
-        hip_us_raw = _extract_latency_us(stats)
-        hip_us     = hip_us_raw if hip_us_raw is not None else float("inf")
-        speedup    = baseline_us / hip_us if hip_us != float("inf") else 0.0
+            try:
+                stats, _, kernel_file = runner.run(patched_code)
+            except Exception as exc:
+                log.append({"event":"hpo_compile_fail",
+                            "params":tunables,"err":str(exc)})
+                optimiser.update(sample.get("_trial") or sample.get("_ind"), 0.0)
+                continue
 
-        optimiser.update(sample.get("_trial") or sample.get("_ind"), speedup)
-        log.append({"event":"hpo_step","params":tunables,
-                    "hip_us":hip_us_raw,"speedup":speedup})
-        improved = hip_us < best_us and hip_us_raw is not None
-        if improved:
-            best_us   = hip_us
-            best_code = patched_code
-            best_stats= {"params":tunables,"stats":stats,
-                         "speedup":speedup,"baseline_us":baseline_us}
-            
-            # Get proper file extension for current kernel language
-            kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
-            extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
-            ext = extension_map.get(kernel_lang, ".hip")
-            
-            shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_HPO_{int(speedup*100):03}{ext}")
-            log.append({                 # SFT sample (phase-2)
-                "event"   : "sft_sample_hpo",
-                "prompt"  : torch_code,
-                "response": patched_code,
-                "params"  : tunables,
-                "speedup" : speedup,
-                "hip_us"  : hip_us_raw,
-            })
-            no_gain_hpo = 0
-        else:
-            no_gain_hpo += 1
+            hip_us_raw = _extract_latency_us(stats)
+            hip_us     = hip_us_raw if hip_us_raw is not None else float("inf")
+            speedup    = baseline_us / hip_us if hip_us != float("inf") else 0.0
 
-        # ---- Phase-2 stop conditions --------------------------------------
-        reached_target_hpo  = speedup >= target_speedup
-        out_of_patience_hpo = no_gain_hpo >= SEARCH_CFG.get("patience", 10)
-        if reached_target_hpo or out_of_patience_hpo:
-            reason = ("target_speedup" if reached_target_hpo else "no_improvement")
-            log.append({"event":"early_stop_hpo","reason":reason,"speedup":speedup})
-            break
-    breakpoint()
+            optimiser.update(sample.get("_trial") or sample.get("_ind"), speedup)
+            log.append({"event":"hpo_step","params":tunables,
+                        "hip_us":hip_us_raw,"speedup":speedup})
+            improved = hip_us < best_us and hip_us_raw is not None
+            if improved:
+                best_us   = hip_us
+                best_code = patched_code
+                best_stats= {"params":tunables,"stats":stats,
+                            "speedup":speedup,"baseline_us":baseline_us}
+                
+                # Get proper file extension for current kernel language
+                kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+                extension_map = {"hip": ".hip", "cuda": ".cu", "triton": ".py"}
+                ext = extension_map.get(kernel_lang, ".hip")
+                
+                
+                shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_HPO_{int(speedup*100):03}{ext}")
+                
+                log.append({                 # SFT sample (phase-2)
+                    "event"   : "sft_sample_hpo",
+                    "prompt"  : torch_code,
+                    "response": patched_code,
+                    "params"  : tunables,
+                    "speedup" : speedup,
+                    "hip_us"  : hip_us_raw,
+                })
+                no_gain_hpo = 0
+            else:
+                no_gain_hpo += 1
+
+            # ---- Phase-2 stop conditions --------------------------------------
+            reached_target_hpo  = speedup >= target_speedup
+            out_of_patience_hpo = no_gain_hpo >= SEARCH_CFG.get("patience", 16)
+            if out_of_patience_hpo:
+                reason = ("target_speedup" if reached_target_hpo else "no_improvement")
+                log.append({"event":"early_stop_hpo","reason":reason,"speedup":speedup})
+                break
     # =========================================================================
     #  final persistence
     # =========================================================================
@@ -312,6 +352,8 @@ def orchestrate(torch_file: str, iterations: int | None):
         
         best_path = run_dir / f"{torch_path.stem}_best{ext}"
         best_path.write_text(best_code)
+        if kernel_lang in ["hip", "cuda"]:
+            shutil.copy(best_path, run_dir / f"{torch_path.stem}_best.cpp")
         with best_path.with_suffix(".json").open("w") as fp:
             json.dump(best_stats, fp, indent=2)
         log.append({"event":"best_kernel_saved","file":str(best_path),**best_stats})
