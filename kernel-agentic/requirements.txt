@@ -27,3 +27,4 @@ requests
 beautifulsoup4
 optuna
 deap
+reportlab

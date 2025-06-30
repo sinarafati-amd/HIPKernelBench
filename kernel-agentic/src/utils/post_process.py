@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib.gridspec as gridspec
 from scipy.stats import gaussian_kde
-
+import pandas as pd
 level_1 ={
     'group1_matrix_multiplication': ['4D_tensor_matrix_multiplication', '3D_tensor_matrix_multiplication',
                                     'Square_matrix_multiplication_', 'Standard_matrix_multiplication_',
@@ -84,11 +84,12 @@ def main(input):
     # Initialize list_baselines with one empty list per group
     list_baselines = [[] for _ in range(len(level_1))]
     list_best = [[] for _ in range(len(level_1))]
+    list_fails = [[0] for _ in range(len(level_1))]
 
     folders = os.listdir(input)
-
+    total_count = 0
     for folder in folders:
-        if folder.endswith('.jsonl') or folder.endswith('.png'):
+        if folder.endswith('.jsonl') or folder.endswith('.png') or folder.endswith('.json'):
             continue
 
         name = folder.split('_', 1)[-1].split('.py', 1)[0]
@@ -103,8 +104,9 @@ def main(input):
         with open(os.path.join(input, folder, baseline), 'r') as f:
             data = json.load(f)
         baseline_time = data['lat_us']
-
-
+        
+        cpp_files = [f for f in os.listdir(os.path.join(input,folder)) if f.endswith('.cpp')]
+        Failed =not (len(cpp_files) > 0)
 
         jsonl_path = os.path.join(input,folder, "generation_history.jsonl")
         if os.path.isfile(jsonl_path):
@@ -138,6 +140,7 @@ def main(input):
                 group_index = group_name_to_index[group]
                 list_baselines[group_index].append(baseline_time)
                 list_best[group_index].append(baseline_time if best_sft_entry is None else best_sft_entry['hip_us'])
+                list_fails[group_index][0] += 1 if Failed else 0
                 break
         else:
             print(f"Name {name} not found in any group")
@@ -148,21 +151,35 @@ def main(input):
     average_times = [np.mean(times) if times else 0 for times in list_baselines]
     average_best_times = [np.mean(times) if times else 0 for times in list_best]
 
-    breakpoint()
-
     # Step 2: Remove 'groupX_' prefix from group names
     cleaned_names = [name.split('_', 1)[-1] if '_' in name else name for name in group_names]
 
-    fig, ax = plt.subplots(figsize=(16, 6))
-    sns.barplot(x=cleaned_names, y=average_times,    label='Torch', ax=ax)
-    sns.barplot(x=cleaned_names, y=average_best_times, label='HIP',
-                alpha=0.7, ax=ax)
+    df = pd.DataFrame({
+    'group': cleaned_names,
+    'Torch': average_times,
+    'HIP': average_best_times
+    })
+    df_melt = df.melt(
+        id_vars='group',
+        value_vars=['Torch', 'HIP'],
+        var_name='',
+        value_name='AvgTime'
+    )
 
+    fig, ax = plt.subplots(figsize=(16, 6))
+    sns.barplot(
+        x='group',
+        y='AvgTime',
+        hue='',
+        data=df_melt,
+        ax=ax
+    )
     ax.set_yscale('log')
     ax.set_ylabel('Average Time (μs) [log scale]')
     ax.grid(axis='y', which='both', linestyle='--', linewidth=0.5)
+    plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    plt.savefig(os.path.join(input, 'average_baseline_barplot_log.png'))
+    plt.savefig(os.path.join(input, 'average_baseline_barplot_grouped_log.png'))
     plt.show()
 
     #flatten lsit of list
@@ -210,7 +227,7 @@ def main(input):
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Post-process the generated kernels.")
-    parser.add_argument("--input", type=str, default='logs', help="Path to the input file.")
+    parser.add_argument("--input", type=str, default='logsv0', help="Path to the input file.")
     args = parser.parse_args()
 
     main(input=args.input)

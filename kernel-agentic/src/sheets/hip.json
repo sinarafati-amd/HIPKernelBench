@@ -58,7 +58,7 @@
     {
       "name": "reduction_mean",
       "pytorch": "out = x.mean(dim)",
-      "kernel": "__global__ void reduce_mean_kernel(const float* __restrict__ x, float* __restrict__ out, int n){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < n) mySum = x[i] + (i + blockDim.x < n ? x[i + blockDim.x] : 0); sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) out[blockIdx.x] = sdata[0] / n;"
+      "kernel": "__global__ void reduce_mean_kernel(const float* __restrict__ x, float* __restrict__ out, int n){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < n) mySum = x[i] + (i + blockDim.x < n ? x[i + blockDim.x] : 0); sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) out[blockIdx.x] = sdata[0] / n;}"
     },
     {
       "name": "argmax",
@@ -78,7 +78,7 @@
     {
       "name": "conv2d_forward",
       "pytorch": "out = torch.nn.functional.conv2d(x, weight, bias, stride, padding)",
-      "kernel": "__global__ void conv2d_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int H, int W, int K, int R, int S, int P, int Q){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; int tid = threadIdx.x; float acc = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){for(int s=0;s<S;++s){int h = p + r; int w_ = q + s; if(h < H && w_ < W){int x_idx = ((n*C + c)*H + h)*W + w_; int w_idx = ((k*C + c)*R + r)*S + s; acc += x[x_idx]*w[w_idx];}}} if(tid==0) y[((n*K + k)*P + p)*Q + q] = acc;}"
+      "kernel": "__global__ void conv2d_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int H, int W, int K, int R, int S, int P, int Q){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; float acc = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){for(int s=0;s<S;++s){int h = p + r; int w_ = q + s; if(h < H && w_ < W){int x_idx = ((n*C + c)*H + h)*W + w_; int w_idx = ((k*C + c)*R + r)*S + s; acc += x[x_idx]*w[w_idx];}}} if(threadIdx.x==0) y[((n*K + k)*P + p)*Q + q] = acc;}}"
     },
     {
       "name": "max_pool2d_forward",
@@ -103,7 +103,7 @@
     {
       "name": "layernorm_forward",
       "pytorch": "y = torch.nn.functional.layer_norm(x, normalized_shape, weight, bias, eps)",
-      "kernel": "__global__ void layernorm_fw_kernel(const float* __restrict__ x, float* __restrict__ y, const float* __restrict__ gamma, const float* __restrict__ beta, int M, int N, float eps){extern __shared__ float sm[]; int row = blockIdx.x; int tid = threadIdx.x; float mean = 0.0f; for(int i=tid;i<N;i+=blockDim.x){mean += x[row*N + i];} sm[tid] = mean; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthreads();} mean = sm[0] / N; float var = 0.0f; for(int i=tid;i<N;i+=blockDim.x){float v = x[row*N + i] - mean; var += v*v;} sm[tid] = var; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthreads();} var = sm[0]/N; float inv_std = rsqrtf(var + eps); for(int i=tid;i<N;i+=blockDim.x){int idx = row*N + i; float norm = (x[idx]-mean)*inv_std; y[idx] = norm*gamma[i] + beta[i];}}"
+      "kernel": "__global__ void layernorm_fw_kernel(const float* __restrict__ x, float* __restrict__ y, const float* __restrict__ gamma, const float* __restrict__ beta, int M, int N, float eps){extern __shared__ float sm[]; int row = blockIdx.x; int tid = threadIdx.x; float mean = 0.0f; for(int i=tid;i<N;i+=blockDim.x){mean += x[row*N + i];} sm[tid] = mean; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthreads();} mean = sm[0] / N; float var = 0.0f; for(int i=tid;i<N;i+=blockDim.x){float v = x[row*N + i] - mean; var += v*v;} sm[tid] = var; __syncthreads(); for(int s=blockDim.x>>1;s>0;s>>=1){if(tid < s) sm[tid] += sm[tid+s]; __syncthtreads();} var = sm[0]/N; float inv_std = rsqrtf(var + eps); for(int i=tid;i<N;i+=blockDim.x){int idx = row*N + i; float norm = (x[idx]-mean)*inv_std; y[idx] = norm*gamma[i] + beta[i];}}"
     },
     {
       "name": "dropout_forward",
@@ -129,6 +129,46 @@
       "name": "dot_product",
       "pytorch": "out = torch.dot(a, b)",
       "kernel": "__global__ void dot_kernel(const float* __restrict__ a, const float* __restrict__ b, float* __restrict__ out){extern __shared__ float sdata[]; unsigned int tid = threadIdx.x; unsigned int i = blockIdx.x * blockDim.x * 2 + tid; float mySum = 0; if(i < N){mySum = a[i]*b[i] + (i + blockDim.x < N ? a[i + blockDim.x]*b[i + blockDim.x] : 0);} sdata[tid] = mySum; __syncthreads(); for(unsigned int s = blockDim.x/2; s>0; s>>=1){if(tid < s) sdata[tid] += sdata[tid + s]; __syncthreads();} if(tid == 0) atomicAdd(out, sdata[0]);}"
+    },
+    {
+      "name": "matrix_vector_multiplication",
+      "pytorch": "out = torch.matmul(A, x)",
+      "kernel": "__global__ void matvec_kernel(const float* __restrict__ A, const float* __restrict__ x, float* __restrict__ y, int M, int N){int row = blockIdx.x * blockDim.x + threadIdx.x; if(row < M){float sum = 0.0f; for(int j = 0; j < N; ++j){sum += A[row * N + j] * x[j];} y[row] = sum;}}"
+    },
+    {
+      "name": "matrix_scalar_multiplication",
+      "pytorch": "out = A * scalar",
+      "kernel": "__global__ void mat_scalar_mul_kernel(const float* __restrict__ A, float scalar, float* __restrict__ out, int n){int idx = blockIdx.x * blockDim.x + threadIdx.x; if(idx < n) out[idx] = A[idx] * scalar;}"
+    },
+    {
+      "name": "batched_matrix_multiplication",
+      "pytorch": "out = torch.bmm(A, B)",
+      "kernel": "__global__ void batched_gemm_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C, int Batches, int M, int N, int K){int batch = blockIdx.z; int row = blockIdx.y * blockDim.y + threadIdx.y; int col = blockIdx.x * blockDim.x + threadIdx.x; if(batch < Batches && row < M && col < N){float sum = 0.0f; const float* A_batch = A + batch * M * K; const float* B_batch = B + batch * K * N; for(int k = 0; k < K; ++k){sum += A_batch[row * K + k] * B_batch[k * N + col];} C[(batch * M + row) * N + col] = sum;}}"
+    },
+    {
+      "name": "3D_tensor_matrix_multiplication",
+      "pytorch": "out = torch.matmul(batch, matrix)",
+      "kernel": "__global__ void tensor3d_matmul_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C, int Batches, int M, int N, int K){int batch = blockIdx.z; int row = blockIdx.y * blockDim.y + threadIdx.y; int col = blockIdx.x * blockDim.x + threadIdx.x; if(batch < Batches && row < M && col < N){float sum = 0.0f; const float* A_batch = A + batch * M * K; for(int k = 0; k < K; ++k){sum += A_batch[row * K + k] * B[k * N + col];} C[(batch * M + row) * N + col] = sum;}}"
+    },
+    {
+      "name": "matmul_transposed_A",
+      "pytorch": "out = torch.matmul(A.t(), B)",
+      "kernel": "__global__ void gemm_transA_kernel(const float* __restrict__ A, const float* __restrict__ B, float* __restrict__ C, int M, int N, int K){int row = blockIdx.y * blockDim.y + threadIdx.y; int col = blockIdx.x * blockDim.x + threadIdx.x; if(row < K && col < N){float sum = 0.0f; for(int m = 0; m < M; ++m){sum += A[m * K + row] * B[m * N + col];} C[row * N + col] = sum;}}"
+    },
+    {
+      "name": "conv_transposed_2d",
+      "pytorch": "out = torch.nn.functional.conv_transpose2d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "__global__ void conv_transpose2d_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int H, int W, int K, int R, int S, int P, int Q, int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; float sum = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){for(int s=0;s<S;++s){int h = (p + pad_h - r * dilation_h) / stride_h; int w_ = (q + pad_w - s * dilation_w) / stride_w; if(h * stride_h == p + pad_h - r * dilation_h && w_ * stride_w == q + pad_w - s * dilation_w){if(h >= 0 && h < H && w_ >= 0 && w_ < W){int x_idx = ((n*C + c)*H + h)*W + w_; int w_idx = ((c*K + k)*R + r)*S + s; sum += x[x_idx] * w[w_idx];}}}} y[((n*K + k)*P + p)*Q + q] = sum;}}"
+    },
+    {
+      "name": "conv2d_asymmetric_kernel",
+      "pytorch": "out = torch.nn.functional.conv2d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "__global__ void conv2d_asym_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int H, int W, int K, int R, int S, int P, int Q, int stride_h, int stride_w, int pad_h, int pad_w, int dilation_h, int dilation_w){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x / Q; int q = blockIdx.x % Q; float sum = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){for(int s=0;s<S;++s){int h = p * stride_h - pad_h + r * dilation_h; int w_ = q * stride_w - pad_w + s * dilation_w; if(h >= 0 && h < H && w_ >= 0 && w_ < W){sum += x[((n*C + c)*H + h)*W + w_] * w[((k*C + c)*R + r)*S + s];}}} y[((n*K + k)*P + p)*Q + q] = sum;}}"
+    },
+    {
+      "name": "conv_transposed_1d",
+      "pytorch": "out = torch.nn.functional.conv_transpose1d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "__global__ void conv_transpose1d_kernel(const float* __restrict__ x, const float* __restrict__ w, const float* __restrict__ b, float* __restrict__ y, int N, int C, int L, int K, int R, int P, int stride, int pad, int dilation){int n = blockIdx.z; int k = blockIdx.y; int p = blockIdx.x * blockDim.x + threadIdx.x; if(p < P){float sum = b ? b[k] : 0.0f; for(int c=0;c<C;++c){for(int r=0;r<R;++r){int l = (p + pad - r * dilation) / stride; if(l * stride == p + pad - r * dilation && l >= 0 && l < L){sum += x[(n*C + c)*L + l] * w[(c*K + k)*R + r];}}} y[(n*K + k)*P + p] = sum;}}"
     }
   ]
 }

@@ -9,3 +9,6 @@ kernel-agentic/src/agents/search_agent.py
 kernel-agentic/hinge_loss_bay_main/*
 kernel-agentic/hinge_loss_ge_1/*
 kernel-agentic/torch_codes/*
+kernel-agentic/logsv0/*
+kernel-agentic/torch_codesv0/*
+dump

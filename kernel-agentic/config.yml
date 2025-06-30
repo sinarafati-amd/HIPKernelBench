@@ -9,8 +9,8 @@ Pipeline:
   search:
     enabled: true
     method: genetic         # bayes | genetic
-    patience: 16             # for genetic
-    max_trials: 60        # for Bayesian
+    patience: 12             # for genetic
+    max_trials: 12        # for Bayesian
     pop: 16               # for GA
     ngen: 20
 
@@ -51,8 +51,8 @@ eval:
   n_trial: 3
 
 stopping:
-  min_iters: 2          # never exit earlier than this
-  max_iters: 5          # absolute cap (safety valve)
+  min_iters: 3          # never exit earlier than this
+  max_iters: 10          # absolute cap (safety valve)
   target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
   patience: 4           # end if no ε-better for these many iterations
@@ -99,7 +99,7 @@ training:
     r: 16
     alpha: 32
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
-    epochs: 1
+    epochs: 600
   grpo:         
     base_model: Qwen/Qwen2-0.5B-Instruct
     num_steps: 800       
@@ -118,7 +118,7 @@ training:
     grad_acc_steps:        4       # gradient_accumulation_steps
     lr:                    5e-4    # learning_rate
     max_grad_norm:         1.0     # max_grad_norm
-
+    k: 4
     num_train_epochs:      3       # epochs over the RL dataset
     max_steps:            -1       # total steps override (-1 = no limit)
     

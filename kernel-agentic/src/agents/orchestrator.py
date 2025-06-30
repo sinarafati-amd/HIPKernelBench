@@ -3,6 +3,7 @@ import argparse, pathlib, yaml, json, time, shutil, os
 from pathlib import Path
 from typing import Dict, Any
 from .torch_analyser import TorchAnalyser
+from .feedback_analyzer import KernelFeedbackAnalyser
 from .baseline import _baseline_latency
 from .rag_researcher import RAGResearcher
 from .kernel_generator import KernelGenerator
@@ -58,6 +59,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     # ---- stopping config ---------------------------------------------------
     min_iters      = STOP_CFG["min_iters"]
     max_iters      = iterations if iterations is not None else STOP_CFG["max_iters"]
+    min_iters      = iterations if iterations is not None else STOP_CFG["min_iters"]
     target_speedup = STOP_CFG["target_speedup"]
     eps            = STOP_CFG["min_improvement"]
     patience_phase1= STOP_CFG["patience"]         # for LLM phase
@@ -70,6 +72,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
     
     analyser   = TorchAnalyser()
+    feedback_analyzer = KernelFeedbackAnalyser() 
     researcher = RAGResearcher(kernel_lang=kernel_lang)  # Language-specific RAG
     searcher   = SearchAgent()
     generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
@@ -158,7 +161,8 @@ def orchestrate(torch_file: str, iterations: int | None):
             fails = 0
         except Exception as exc:
             fails += 1
-            feedback = str(exc)[:4000]
+            # feedback = str(exc)[:6000]
+            feedback = str(exc)
             log.append({"event": "iteration_failed", "iter": i, "error": feedback})
             if fails >= max_fail or i + 1 >= max_iters:
                 log.append({"event": "early_stop",
@@ -168,7 +172,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             continue
         if errors is None:
             errors = ""
-        
+
         # ---------- metrics -------------------------------------------------
         hip_us_raw = _extract_latency_us(stats)
         hip_us     = hip_us_raw if hip_us_raw is not None else float("inf")
@@ -179,6 +183,7 @@ def orchestrate(torch_file: str, iterations: int | None):
         out_of_patience = correct and (no_gain   >= patience_phase1) and (i + 1 >= min_iters)
         # stop on max iters *regardless* of correctness
         hit_max_iters   = (i + 1) >= max_iters
+        hit_min_iters   = (i + 1) >= min_iters
 
         if reached_target or out_of_patience or hit_max_iters:
             reason = (
@@ -187,7 +192,7 @@ def orchestrate(torch_file: str, iterations: int | None):
                 else "max_iters"
             )
             log.append({
-                "event" : "early_stop",
+                "event" : "early_log",
                 "reason": reason,
                 "iter"  : i,
                 "speedup": speedup,
@@ -206,19 +211,18 @@ def orchestrate(torch_file: str, iterations: int | None):
                 ext = extension_map.get(kernel_lang, ".hip")
                 
                 shutil.copy(kernel_file, run_dir / f"{torch_path.stem}_iter{i}{ext}")
-                log.append({                         # SFT sample (phase-1)
-                    "event"   : "sft_sample_phase1",
-                    "prompt"  : torch_code,
-                    "response": kernel_code,
-                    "iter"    : i,
-                    "speedup" : speedup,
-                    "hip_us"  : hip_us_raw,
-                })
-                log.append({"event":"phase1_complete","iter":i,"hip_us":hip_us})
-                break   # ───────  exit phase-1 ➜ phase-2  ───────
-            break
-        
-       
+                if hit_min_iters:
+                    log.append({                         # SFT sample (phase-1)
+                        "event"   : "sft_sample_phase1",
+                        "prompt"  : torch_code,
+                        "response": kernel_code,
+                        "iter"    : i,
+                        "speedup" : speedup,
+                        "hip_us"  : hip_us_raw,
+                    })
+                    log.append({"event":"phase1_complete","iter":i,"hip_us":hip_us})
+                    break   # ───────  exit phase-1 ➜ phase-2  ─────── 
+
         # bookkeeping for ‘no‐gain’
         if hip_us_raw is not None:
             improved = (best_us - hip_us) / best_us >= eps
@@ -238,15 +242,17 @@ def orchestrate(torch_file: str, iterations: int | None):
         })
         # feedback = json.dumps({"profile": stats, "correct": correct,"errors": errors})[:8000]
         if errors:                                   
-            feedback = errors                      
+            feedback_text = errors                      
         else:                                        
-            feedback = json.dumps({"profile": stats,"correct": True})[:8000]
+            # feedback = json.dumps({"profile": stats,"correct": True})[:8000]
+            feedback_text = json.dumps({"profile": stats,"correct": True})
+
         
+        feedback = feedback_analyzer.analyse(kernel_code, feedback_text) 
         # Store current kernel as previous for next iteration  
         previous_kernel = kernel_code
         
         i += 1
-
 
     # ----------------  no correct kernel → abort whole run ------------------
     if best_code is None:
@@ -341,6 +347,7 @@ def orchestrate(torch_file: str, iterations: int | None):
                 reason = ("target_speedup" if reached_target_hpo else "no_improvement")
                 log.append({"event":"early_stop_hpo","reason":reason,"speedup":speedup})
                 break
+
     # =========================================================================
     #  final persistence
     # =========================================================================

@@ -13,8 +13,7 @@ class TorchAnalyser(BaseAgent):
                 also consider another key "top_kernels" with which you should return a list of kernels that you think are the most relevant to the explanation. 
                 here are the kernels you can use:
 
-                ["elementwise_add", "elementwise_mul","elementwise_sub","elementwise_div","elementwise_exp","sigmoid","gelu","tanh","fused_bias_add_relu","reduction_sum","reduction_max","reduction_mean","argmax","prefix_sum_scan","matrix_multiplication_gemm","conv2d_forward","max_pool2d_forward","avg_pool2d_forward","softmax","batchnorm_forward","layernorm_forward","dropout_forward","transpose","gather","scatter_add","dot_product"]
-                
+                ["elementwise_add","elementwise_mul","elementwise_sub","elementwise_div","elementwise_exp","sigmoid","gelu","tanh","fused_bias_add_relu","reduction_sum","reduction_max","reduction_mean","argmax","prefix_sum_scan","matrix_multiplication_gemm","conv2d_forward","max_pool2d_forward","avg_pool2d_forward","softmax","batchnorm_forward","layernorm_forward","dropout_forward","transpose","gather","scatter_add","dot_product","matrix_vector_multiplication","matrix_scalar_multiplication","batched_matrix_multiplication","3D_tensor_matrix_multiplication","matmul_transposed_A","conv_transposed_2d","conv2d_asymmetric_kernel","conv_transposed_1d"]
                 output should be a json with keys "explanation" and "top_kernels" like this:
                 {
                     "explanation": "Your explanation here",

@@ -88,7 +88,7 @@
     {
       "name": "layernorm_forward",
       "pytorch": "y = torch.nn.functional.layer_norm(x, normalized_shape, weight, bias, eps)",
-      "kernel": "@triton.jit\ndef layernorm_fw_kernel(x_ptr, y_ptr, gamma_ptr, beta_ptr, M, N, eps, BLOCK_SIZE: tl.constexpr):\n    row = tl.program_id(0)\n    offs = row * N + tl.arange(0, BLOCK_SIZE)\n    mask = tl.arange(0, BLOCK_SIZE) < N\n    x = tl.load(x_ptr + offs, mask=mask, other=0)\n    mean = tl.mean(x, axis=0)\n    var = tl.mean((x - mean) ** 2, axis=0)\n    inv_std = tl.rsqrt(var + eps)\n    gamma = tl.load(gamma_ptr + tl.arange(0, BLOCK_SIZE), mask=mask, other=1)\n    beta  = tl.load(beta_ptr  + tl.arange(0, BLOCK_SIZE), mask=mask, other=0)\n    y = (x - mean) * inv_std * gamma + beta\n    tl.store(y_ptr + offs, y, mask=mask)"
+      "kernel": "@triton.jit\ndef layernorm_fw_kernel(x_ptr, y_ptr, gamma_ptr, beta_ptr, M, N, eps, BLOCK_SIZE: tl.constexpr):\n    row = tl.program_id(0)\n    offs = row * N + tl.arange(0, BLOCK_SIZE)\n    mask = tl.arange(0, BLOCK_SIZE) < N\n    x = tl.load(x_ptr + offs, mask=mask, other=0)\n    mean = tl.mean(x, axis=0)\n    var = tl.mean((x - mean) ** 2, axis=0)\n    inv_std = tl.rsqrt(var + eps)\n    gamma = tl.load(gamma_ptr + tl.arange(0, BLOCK_SIZE), mask=mask, other=1)\n    beta = tl.load(beta_ptr + tl.arange(0, BLOCK_SIZE), mask=mask, other=0)\n    y = (x - mean) * inv_std * gamma + beta\n    tl.store(y_ptr + offs, y, mask=mask)"
     },
     {
       "name": "dropout_forward",
@@ -114,6 +114,46 @@
       "name": "dot_product",
       "pytorch": "out = torch.dot(a, b)",
       "kernel": "@triton.jit\ndef dot_kernel(a_ptr, b_ptr, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(a_ptr + offs, mask=mask, other=0)\n    b = tl.load(b_ptr + offs, mask=mask, other=0)\n    acc = tl.sum(a * b, axis=0)\n    tl.store(out_ptr, acc, mask=pid == 0)"
+    },
+    {
+      "name": "matrix_vector_multiplication",
+      "pytorch": "out = torch.matmul(A, x)",
+      "kernel": "@triton.jit\ndef matvec_kernel(A_ptr, x_ptr, y_ptr, M, N, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs_m = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask_m = offs_m < M\n    y = tl.zeros((BLOCK_SIZE,), dtype=tl.float32)\n    for k in range(N):\n        a = tl.load(A_ptr + offs_m * N + k, mask=mask_m, other=0.0)\n        x = tl.load(x_ptr + k)\n        y += a * x\n    tl.store(y_ptr + offs_m, y, mask=mask_m)"
+    },
+    {
+      "name": "matrix_scalar_multiplication",
+      "pytorch": "out = A * scalar",
+      "kernel": "@triton.jit\ndef mat_scalar_mul_kernel(A_ptr, scalar, out_ptr, n, BLOCK_SIZE: tl.constexpr):\n    pid = tl.program_id(0)\n    offs = pid * BLOCK_SIZE + tl.arange(0, BLOCK_SIZE)\n    mask = offs < n\n    a = tl.load(A_ptr + offs, mask=mask)\n    tl.store(out_ptr + offs, a * scalar, mask=mask)"
+    },
+    {
+      "name": "batched_matrix_multiplication",
+      "pytorch": "out = torch.bmm(A, B)",
+      "kernel": "@triton.jit\ndef batched_gemm_kernel(A_ptr, B_ptr, C_ptr, Batches, M, N, K, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr):\n    batch = tl.program_id(2)\n    pid_m = tl.program_id(1)\n    pid_n = tl.program_id(0)\n    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)\n    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)\n    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)\n    for k in range(0, K, BLOCK_K):\n        offs_k = k + tl.arange(0, BLOCK_K)\n        a = tl.load(A_ptr + batch * M * K + offs_m[:, None] * K + offs_k[None, :], mask=(offs_m[:, None] < M) & (offs_k[None, :] < K), other=0.0)\n        b = tl.load(B_ptr + batch * K * N + offs_k[:, None] * N + offs_n[None, :], mask=(offs_k[:, None] < K) & (offs_n[None, :] < N), other=0.0)\n        acc += tl.dot(a, b)\n    tl.store(C_ptr + batch * M * N + offs_m[:, None] * N + offs_n[None, :], acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))"
+    },
+    {
+      "name": "3D_tensor_matrix_multiplication",
+      "pytorch": "out = torch.matmul(batch, matrix)",
+      "kernel": "@triton.jit\ndef tensor3d_matmul_kernel(A_ptr, B_ptr, C_ptr, Batches, M, N, K, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr):\n    batch = tl.program_id(2)\n    pid_m = tl.program_id(1)\n    pid_n = tl.program_id(0)\n    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)\n    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)\n    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)\n    for k in range(0, K, BLOCK_K):\n        offs_k = k + tl.arange(0, BLOCK_K)\n        a = tl.load(A_ptr + batch * M * K + offs_m[:, None] * K + offs_k[None, :], mask=(offs_m[:, None] < M) & (offs_k[None, :] < K), other=0.0)\n        b = tl.load(B_ptr + offs_k[:, None] * N + offs_n[None, :], mask=(offs_k[:, None] < K) & (offs_n[None, :] < N), other=0.0)\n        acc += tl.dot(a, b)\n    tl.store(C_ptr + batch * M * N + offs_m[:, None] * N + offs_n[None, :], acc, mask=(offs_m[:, None] < M) & (offs_n[None, :] < N))"
+    },
+    {
+      "name": "matmul_transposed_A",
+      "pytorch": "out = torch.matmul(A.t(), B)",
+      "kernel": "@triton.jit\ndef gemm_transA_kernel(A_ptr, B_ptr, C_ptr, M, N, K, BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr, BLOCK_K: tl.constexpr):\n    pid_m = tl.program_id(1)\n    pid_n = tl.program_id(0)\n    offs_m = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)\n    offs_n = pid_n * BLOCK_N + tl.arange(0, BLOCK_N)\n    acc = tl.zeros((BLOCK_M, BLOCK_N), dtype=tl.float32)\n    for m in range(0, M, BLOCK_K):\n        offs_k = m + tl.arange(0, BLOCK_K)\n        a = tl.load(A_ptr + offs_k[:, None] * K + offs_m[None, :], mask=(offs_k[:, None] < M) & (offs_m[None, :] < K), other=0.0)\n        b = tl.load(B_ptr + offs_k[:, None] * N + offs_n[None, :], mask=(offs_k[:, None] < M) & (offs_n[None, :] < N), other=0.0)\n        acc += tl.dot(a, b)\n    tl.store(C_ptr + offs_m[:, None] * N + offs_n[None, :], acc, mask=(offs_m[:, None] < K) & (offs_n[None, :] < N))"
+    },
+    {
+      "name": "conv_transposed_2d",
+      "pytorch": "out = torch.nn.functional.conv_transpose2d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "@triton.jit\ndef conv_transpose2d_kernel(x_ptr, w_ptr, b_ptr, y_ptr, N, C, H, W, K, R, S, P, Q, stride_h: tl.constexpr, stride_w: tl.constexpr, pad_h: tl.constexpr, pad_w: tl.constexpr, dilation_h: tl.constexpr, dilation_w: tl.constexpr, BLOCK_P: tl.constexpr, BLOCK_Q: tl.constexpr):\n    n = tl.program_id(3)\n    k = tl.program_id(2)\n    p = tl.program_id(1) * BLOCK_P + tl.arange(0, BLOCK_P)\n    q = tl.program_id(0) * BLOCK_Q + tl.arange(0, BLOCK_Q)\n    mask_p = p < P\n    mask_q = q < Q\n    out = tl.zeros((BLOCK_P, BLOCK_Q), dtype=tl.float32)\n    for c in range(C):\n        for r in range(R):\n            for s in range(S):\n                h = (p + pad_h - r * dilation_h) // stride_h\n                w = (q + pad_w - s * dilation_w) // stride_w\n                cond = ((h * stride_h == p + pad_h - r * dilation_h) & (w * stride_w == q + pad_w - s * dilation_w) & (h >= 0) & (h < H) & (w >= 0) & (w < W))\n                x_val = tl.load(x_ptr + ((n * C + c) * H + h) * W + w, mask=cond, other=0.0)\n                w_val = tl.load(w_ptr + ((c * K + k) * R + r) * S + s, mask=cond, other=0.0)\n                out += x_val * w_val\n    if b_ptr is not None:\n        out += tl.load(b_ptr + k)\n    tl.store(y_ptr + ((n * K + k) * P + p) * Q + q, out, mask=mask_p[:, None] & mask_q[None, :])"
+    },
+    {
+      "name": "conv2d_asymmetric_kernel",
+      "pytorch": "out = torch.nn.functional.conv2d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "@triton.jit\ndef conv2d_asym_kernel(x_ptr, w_ptr, b_ptr, y_ptr, N, C, H, W, K, R, S, P, Q, stride_h: tl.constexpr, stride_w: tl.constexpr, pad_h: tl.constexpr, pad_w: tl.constexpr, dilation_h: tl.constexpr, dilation_w: tl.constexpr, BLOCK_P: tl.constexpr, BLOCK_Q: tl.constexpr):\n    n = tl.program_id(3)\n    k = tl.program_id(2)\n    p = tl.program_id(1) * BLOCK_P + tl.arange(0, BLOCK_P)\n    q = tl.program_id(0) * BLOCK_Q + tl.arange(0, BLOCK_Q)\n    mask_p = p < P\n    mask_q = q < Q\n    out = tl.zeros((BLOCK_P, BLOCK_Q), dtype=tl.float32)\n    for c in range(C):\n        for r in range(R):\n            for s in range(S):\n                h = p * stride_h - pad_h + r * dilation_h\n                w = q * stride_w - pad_w + s * dilation_w\n                cond = (h >= 0) & (h < H) & (w >= 0) & (w < W)\n                x_val = tl.load(x_ptr + ((n * C + c) * H + h) * W + w, mask=cond, other=0.0)\n                w_val = tl.load(w_ptr + ((k * C + c) * R + r) * S + s, mask=cond, other=0.0)\n                out += x_val * w_val\n    if b_ptr is not None:\n        out += tl.load(b_ptr + k)\n    tl.store(y_ptr + ((n * K + k) * P + p) * Q + q, out, mask=mask_p[:, None] & mask_q[None, :])"
+    },
+    {
+      "name": "conv_transposed_1d",
+      "pytorch": "out = torch.nn.functional.conv_transpose1d(x, weight, bias, stride, padding, dilation)",
+      "kernel": "@triton.jit\ndef conv_transpose1d_kernel(x_ptr, w_ptr, b_ptr, y_ptr, N, C, L, K, R, P, stride: tl.constexpr, pad: tl.constexpr, dilation: tl.constexpr, BLOCK_P: tl.constexpr):\n    n = tl.program_id(2)\n    k = tl.program_id(1)\n    p = tl.program_id(0) * BLOCK_P + tl.arange(0, BLOCK_P)\n    mask_p = p < P\n    out = tl.zeros((BLOCK_P,), dtype=tl.float32)\n    for c in range(C):\n        for r in range(R):\n            l = (p + pad - r * dilation) // stride\n            cond = (l * stride == p + pad - r * dilation) & (l >= 0) & (l < L)\n            x_val = tl.load(x_ptr + (n * C + c) * L + l, mask=cond, other=0.0)\n            w_val = tl.load(w_ptr + (c * K + k) * R + r, mask=cond, other=0.0)\n            out += x_val * w_val\n    if b_ptr is not None:\n        out += tl.load(b_ptr + k)\n    tl.store(y_ptr + (n * K + k) * P + p, out, mask=mask_p)"
     }
   ]
 }
