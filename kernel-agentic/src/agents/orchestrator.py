@@ -79,7 +79,8 @@ def orchestrate(torch_file: str, iterations: int | None):
     runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
 
     torch_expl_raw = analyser.analyse(torch_code)
-    
+
+    # ---- find corresponding kernels for cheat sheet ---------------------------------------------------
     # Decode the JSON response
     try:
         # Extract JSON from the response if it's wrapped in ```json blocks
@@ -116,8 +117,8 @@ def orchestrate(torch_file: str, iterations: int | None):
                         cheat_code += f"{kernel_entry['name']}: the torch code: \n\n {kernel_entry['pytorch']} \n\n and corresponding kernel code: \n\n {kernel_entry['kernel']}\n"
                         break
 
+    # ---- intializtion ---------------------------------------------------
     baseline_us= _baseline_latency(torch_file, n_trial=2)
-
     best_code: str | None   = None
     best_us                 = float("inf")
     best_stats: Dict[str,Any]|None = None
@@ -137,6 +138,8 @@ def orchestrate(torch_file: str, iterations: int | None):
     if PIPELINE_CFG['online_search']:
         full_ctx   = full_ctx + "\n\n[Internet Search Results]\n" + search_ctx
 
+
+    # ---- Phase 1 LLM based kernel generation loop ---------------------------------------------------
     while True:
         log.append({"event": "iteration_start", "iter": i})
         user_prompt = generator._build_user_prompt(torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code, full_ctx, feedback, previous_kernel)
@@ -154,7 +157,11 @@ def orchestrate(torch_file: str, iterations: int | None):
         # ---------- compile & run -------------------------------------------
         try:
             stats, errors, kernel_file = runner.run(kernel_code)
-            print(errors)
+            print('-.'*70)
+            print(f"                                                               errors ")
+            print(f"{errors}")
+            print('-.'*70)
+
             if CHK_NUM and not errors:
                 err = max_abs_err(torch_file, kernel_file)
                 errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
@@ -170,6 +177,7 @@ def orchestrate(torch_file: str, iterations: int | None):
                 return
             i += 1
             continue
+
         if errors is None:
             errors = ""
 
@@ -259,6 +267,7 @@ def orchestrate(torch_file: str, iterations: int | None):
         log.append({"event": "no_valid_kernel", "torch": torch_file})
         return
 
+    
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
     op_type = analyser.classify(torch_expl)
@@ -283,8 +292,10 @@ def orchestrate(torch_file: str, iterations: int | None):
             ngen=SEARCH_CFG.get("ngen", 20),
             space=search_space          
         )
-    no_gain_hpo = 0
 
+    
+    # ---- Phase 2 GO/BO loop ---------------------------------------------------
+    no_gain_hpo = 0
     if SEARCH_CFG['enabled']:
         counter=0
         while True:
@@ -299,7 +310,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             patched_code = _apply_tunables(best_code, tunables)
 
             try:
-                stats, _, kernel_file = runner.run(patched_code)
+                stats, errs_ , kernel_file = runner.run(patched_code)
             except Exception as exc:
                 log.append({"event":"hpo_compile_fail",
                             "params":tunables,"err":str(exc)})
