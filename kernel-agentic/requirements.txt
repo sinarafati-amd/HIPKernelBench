@@ -28,3 +28,4 @@ beautifulsoup4
 optuna
 deap
 reportlab
+langchain-openai

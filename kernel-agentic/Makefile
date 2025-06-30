@@ -6,6 +6,8 @@ lang ?= hip
 vector-store:
 	python -m src.data.build_vector_store --language "$(lang)"
 
+install_rocm_pytorch:
+	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
 
 dev-setup:
 	uv pip install -r requirements.txt
