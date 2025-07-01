@@ -1,65 +1,154 @@
-```mermaid
-  flowchart TD
-    %% ----------  SETUP  ----------
-    subgraph Setup
-      A1["docs/hip_spec.pdf"] -->|build_vector_store.py| VS["vector_store/"]
-      A2["input_torch.py"]     --> B1
-    end
+# HIPKernelBench
 
-    %% ----------  PHASE 1 – LLM synthesis until first correct kernel ----------
-    subgraph Phase1_LLMSynthesis["Phase 1 – find a correct HIP kernel"]
-      B1["Orchestrator"] --> C1["TorchAnalyser"]
-      C1 --> C2["torch_explanation"]
+An AI-powered framework for automatically generating, analyzing, and optimizing GPU kernels from PyTorch code.
 
-      B1 --> R1["RAGResearcher"]
-      R1 --> R2["doc_context"]
+## Project Overview
 
-      B1 --> G1["HIPGenerator"]
-      G1 --> G2["hip_code.hip"]
+HIPKernelBench is a comprehensive system designed to automatically translate PyTorch operations into optimized GPU kernels using an agentic AI approach. The system leverages large language models (LLMs) to analyze PyTorch code, generate equivalent GPU implementations, and optimize them for performance using genetic or Bayesian search methods.
 
-      B1 --> X1["Executor"]
-      X1 --> X2["compile + rocprof"]
-      X2 --> X3["stats (+ correctness check)"]
+The framework follows a two-phase approach:
+1. **Phase 1 - LLM Synthesis**: Analyze PyTorch code and generate functionally correct HIP kernels
+2. **Phase 2 - Optimization**: Apply Bayesian or genetic optimization techniques to fine-tune kernel parameters
 
-      %% first correct kernel
-      X3 -->|correct? yes → hand-off| P0["best_code.hip"]
-      X3 -->|correct? no → iterate| L1a
+## Repository Structure
 
-      L1a[/"Logger → generation_history.jsonl"/] -.->|loop| B1
-    end
-
-    %% ----------  PHASE 2 – Bayes / Genetic HPO ----------
-    subgraph Phase2_HPO["Phase 2 – Bayes / Genetic optimisation"]
-      O1["Optimiser\n(BayesOpt or GeneticOpt)"] --> O2["tunable_params"]
-      O2 --> O3["apply_tunables → patched_code.hip"]
-      O3 --> X1b["Executor"]
-      X1b --> X2b["compile + rocprof"]
-      X2b --> X3b["stats (speed-up)"]
-
-      X3b --> L1b[/"Logger → generation_history.jsonl"/]
-      L1b -.->|budget left?| O1
-    end
-    P0 --> O1
-
-    %% ----------  OFF-LINE LEARNING ----------
-    subgraph Fine_Tuning
-      L1b --> T1["lora_finetune.py"]
-      T1  --> T2["lora-adapter"]
-    end
-
-    subgraph RL_with_GRPO
-      L1b --> RL1["RewardModel"]
-      RL1 --> RL2["PolicyTrainer (GRPO)"]
-      RL2 --> RL3["llm_policy_update"]
-      RL3 -->|updated LLM for HIPGenerator| G1
-      T2  -->|updated LLM for HIPGenerator| G1
-      RL2 -->|loop until reward threshold| RL1
-    end
-
-    %% ----------  STYLES ----------
-    style VS  fill:#f9f,stroke:#333,stroke-width:1px
-    style L1a fill:#ff9,stroke:#333,stroke-width:1px
-    style L1b fill:#ff9,stroke:#333,stroke-width:1px
-    style T2  fill:#ccf,stroke:#333,stroke-width:1px
-    style RL3 fill:#cfc,stroke:#333,stroke-width:1px
 ```
+.
+├── kernel-agentic/              # Main codebase
+│   ├── config.yml              # Configuration settings for the system
+│   ├── requirements.txt        # Python dependencies
+│   ├── Makefile               # Build and run automation
+│   ├── src/                    # Source code
+│   │   ├── agents/             # AI agent components
+│   │   │   ├── torch_analyser.py    # Analyzes PyTorch code
+│   │   │   ├── kernel_generator.py  # Generates HIP kernels
+│   │   │   ├── orchestrator.py      # Main workflow coordinator
+│   │   │   ├── rag_researcher.py    # Retrieval-augmented generation agent
+│   │   │   ├── executor.py          # Executes and tests kernels
+│   │   │   ├── search_agent.py      # Handles optimization search
+│   │   │   └── feedback_analyzer.py # Analyzes execution feedback
+│   │   ├── data/               # Data handling utilities
+│   │   ├── eval/               # Evaluation tools
+│   │   ├── optim/              # Optimization algorithms
+│   │   │   ├── bayes.py        # Bayesian optimization
+│   │   │   └── genetic.py      # Genetic algorithm optimization
+│   │   ├── training/           # Training infrastructure
+│   │   │   ├── lora_finetune.py    # LoRA fine-tuning
+│   │   │   └── grpo_finetune.py    # GRPO reinforcement learning
+│   │   └── utils/              # Utility functions
+│   ├── scripts/                # Helper scripts
+│   ├── torch_codes/            # PyTorch code examples
+│   ├── logs/                   # Generation logs and results
+│   ├── docs/                   # Documentation
+│   └── vector_store/           # Vector embeddings for RAG
+```
+
+## Key Components
+
+### Agents
+
+- **Orchestrator**: Coordinates the overall workflow
+- **TorchAnalyser**: Analyzes PyTorch code to understand its functionality
+- **RAGResearcher**: Retrieves relevant documentation and examples
+- **KernelGenerator**: Generates HIP kernel code
+- **Executor**: Compiles, runs, and profiles kernel performance
+- **SearchAgent**: Coordinates optimization search algorithms
+
+### Optimization
+
+- **BayesOpt**: Bayesian optimization for kernel parameters
+- **GeneticOpt**: Genetic algorithm for parameter optimization
+
+### Training
+
+- **LoRA Finetuning**: Fine-tuning LLMs with Low-Rank Adaptation
+- **GRPO Finetuning**: Gradient-based Reinforcement Learning from Policy Optimization
+
+## Installation and Setup
+
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd HIPKernelBench/kernel-agentic
+   ```
+
+2. Install dependencies:
+   ```bash
+   make dev-setup
+   ```
+
+## Usage Instructions
+
+### Building Vector Store
+
+Create the vector store for RAG from documentation you can pass one of the languages [hip,cuda, triton] but default is hip:
+
+```bash
+make vector-store
+```
+
+To specify a different language (default is HIP):
+
+```bash
+make vector-store lang=cuda
+```
+
+### Running the System
+
+Run the system on all PyTorch files in the torch_codes directory:
+
+```bash
+make run
+```
+
+This will:
+1. Process each PyTorch file
+2. Generate equivalent kernels
+3. Save generation history to logs/
+
+### Fine-tuning LLMs
+
+Combine generation histories for training:
+
+```bash
+make combine-history
+```
+
+Train a LoRA adapter on the generation data:
+
+```bash
+make train-lora
+```
+
+Train with GRPO (Gradient-based Reinforcement Learning):
+
+```bash
+make grpo-finetune
+```
+
+### Performance Analysis
+
+Generate baseline timing information:
+
+```bash
+make baseline-time TORCH_FILE=path/to/torch_file.py
+```
+
+Run and check correctness against PyTorch:
+
+```bash
+make run-check HIP_BIN=path/to/binary TORCH_FILE=path/to/torch_file.py
+```
+
+
+## Configuration
+
+The system is configured through the `config.yml` file with the following key sections:
+
+- **Pipeline**: Configuration for the overall workflow
+- **openai**: API settings for LLM access
+- **gpu_specs**: Target GPU specifications ---> not required as gpu_spec is also being extracted from rocm api
+- **eval**: Evaluation parameters
+- **training**: LoRA and GRPO fine-tuning parameters
+
+
