@@ -8,6 +8,7 @@ This folder should contain CUDA-specific documentation files (PDFs) for RAG retr
 3. Run: `python -m src.data.build_vector_store --language cuda`
 
 ## Suggested CUDA documentation:
+- https://github.com/modal-labs/gpu-glossary/tree/main (Added)
 - CUDA C++ Programming Guide
 - CUDA C++ Best Practices Guide  
 - CUDA Runtime API Reference

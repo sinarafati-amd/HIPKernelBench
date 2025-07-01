@@ -18,16 +18,16 @@ def build_language_store(language: str, docs_path: str = None):
         print(f"Warning: Documentation path {docs_path} does not exist for {language}")
         return
     
+    paragraphs = []
+
     # Find all PDF files in the language-specific docs folder
     pdf_files = glob.glob(os.path.join(docs_path, "*.pdf"))
     
     if not pdf_files:
         print(f"Warning: No PDF files found in {docs_path}")
-        return
     
     print(f"Building vector store for {language} from {len(pdf_files)} PDF(s)...")
     
-    paragraphs = []
     for pdf_file in pdf_files:
         print(f"  Processing: {pdf_file}")
         with pdfplumber.open(pdf_file) as pdf_in:
@@ -36,8 +36,28 @@ def build_language_store(language: str, docs_path: str = None):
                 if text:  # Only process non-empty pages
                     paragraphs.extend(chunk(text, cfg["chunk_size"]))
     
+    
+    # Find all text files in the language-specific docs folder
+    text_files = glob.glob(os.path.join(docs_path, "**/*.txt"), recursive=True)
+    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.md"), recursive=True))
+    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.csv"), recursive=True))
+    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.json"), recursive=True))
+    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.html"), recursive=True))
+    if not text_files:
+        print(f"Warning: No text files found in {docs_path}")
+        return
+    
+    print(f"  Extracted {len(text_files)} text files")
+    for text_file in text_files:
+        print(f"  Processing: {text_file}")
+        with open(text_file, "r") as f:
+            text = f.read()
+            if text:
+                paragraphs.extend(chunk(text, cfg["chunk_size"]))
+
+
     if not paragraphs:
-        print(f"Warning: No text extracted from PDFs in {docs_path}")
+        print(f"Warning: No text extracted from PDFs or text files in {docs_path}")
         return
     
     print(f"  Extracted {len(paragraphs)} text chunks")
