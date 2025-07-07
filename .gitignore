@@ -703,3 +703,4 @@ kernel-agentic/torch_codes/*
 kernel-agentic/logsv0/*
 kernel-agentic/torch_codesv0/*
 dump
+kernel-agentic/mlruns/*

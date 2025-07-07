@@ -29,3 +29,6 @@ optuna
 deap
 reportlab
 langchain-openai
+boto3
+psycopg2-binary
+mlflow
