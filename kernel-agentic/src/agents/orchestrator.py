@@ -18,6 +18,10 @@ from ..eval.correctness import max_abs_err
 from src.optim.bayes   import BayesOpt
 from src.optim.genetic import GeneticOpt
 from pathlib import Path
+import base64
+import requests
+
+SERVER_URL = "http://localhost:8081"
 
 CFG = yaml.safe_load(open("config.yml"))
 STOP_CFG   = CFG["stopping"]
@@ -168,7 +172,6 @@ def orchestrate(torch_file: str, iterations: int | None):
             fails = 0
         except Exception as exc:
             fails += 1
-            # feedback = str(exc)[:6000]
             feedback = str(exc)
             log.append({"event": "iteration_failed", "iter": i, "error": feedback})
             if fails >= max_fail or i + 1 >= max_iters:
@@ -180,7 +183,16 @@ def orchestrate(torch_file: str, iterations: int | None):
 
         if errors is None:
             errors = ""
+            if PIPELINE_CFG['omnivise']:
+                # ---------- send to Omniwise for profiling ------------------------
+                encoded_code = base64.b64encode(kernel_code.encode("utf-8")).decode("utf-8")
+                JSON_PAYLOAD = {"architecture": CFG[kernel_lang]['gpu_arch'], "compiler_flags": "-O3", "code": encoded_code}  # original omniwise was gfx90a
+                json_payload_str = json.dumps(JSON_PAYLOAD)
+                response = requests.post(SERVER_URL, headers={"Content-Type": "application/json"}, data=json_payload_str)
 
+                if response.status_code == 200:
+                    omnivise_json =  json.loads(response.text)
+                    stats.update(omnivise_json['data'])
         # ---------- metrics -------------------------------------------------
         hip_us_raw = _extract_latency_us(stats)
         hip_us     = hip_us_raw if hip_us_raw is not None else float("inf")
@@ -248,15 +260,17 @@ def orchestrate(torch_file: str, iterations: int | None):
             "response" : kernel_code,
             **(stats or {})
         })
-        # feedback = json.dumps({"profile": stats, "correct": correct,"errors": errors})[:8000]
-        if errors:                                   
-            feedback_text = errors                      
-        else:                                        
-            # feedback = json.dumps({"profile": stats,"correct": True})[:8000]
-            feedback_text = json.dumps({"profile": stats,"correct": True})
+        if not errors or errors == "":  
+            feedback_text = json.dumps({"profile": stats,"correct": True})                                 
+        else:              
+            feedback_text = errors                           
+            
 
         
         feedback = feedback_analyzer.analyse(kernel_code, feedback_text) 
+        print('&'*70)
+        print(feedback)
+        print('&'*70)
         # Store current kernel as previous for next iteration  
         previous_kernel = kernel_code
         
@@ -267,7 +281,6 @@ def orchestrate(torch_file: str, iterations: int | None):
         log.append({"event": "no_valid_kernel", "torch": torch_file})
         return
 
-    
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
     op_type = analyser.classify(torch_expl)

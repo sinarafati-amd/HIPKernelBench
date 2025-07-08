@@ -1,10 +1,4 @@
-# core
-torch>=2.2
-transformers>=4.41
-accelerate
-peft
-faiss-cpu   # or faiss-gpu
-langchain>=0.2
+langchain
 python-dotenv
 pydantic
 rich
@@ -32,3 +26,12 @@ langchain-openai
 boto3
 psycopg2-binary
 mlflow
+docling
+faiss-cpu   
+accelerate
+peft
+IPython
+huggingface-hub
+aiofiles
+datasets
+torch_geometric

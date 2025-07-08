@@ -4,6 +4,7 @@ Pipeline:
   rag_enabled: false
   online_search: false
   cheat_sheet: true
+  omnivise: true
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
   search:
