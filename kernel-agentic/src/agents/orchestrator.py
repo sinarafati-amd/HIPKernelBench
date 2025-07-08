@@ -260,13 +260,13 @@ def orchestrate(torch_file: str, iterations: int | None):
             "response" : kernel_code,
             **(stats or {})
         })
-        if not errors or errors == "":  
-            feedback_text = json.dumps({"profile": stats,"correct": True})                                 
-        else:              
-            feedback_text = errors                           
-            
+        if not errors or errors == "":
+            feedback_text = json.dumps({"profile": stats,"correct": True})
+        else:
+            feedback_text = errors
 
-        
+
+
         feedback = feedback_analyzer.analyse(kernel_code, feedback_text) 
         print('&'*70)
         print(feedback)

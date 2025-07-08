@@ -9,7 +9,7 @@ sentence-transformers
 langchain-huggingface
 trl
 tiktoken
-sentencepiece 
+sentencepiece
 blobfile
 einops
 protobuf
@@ -27,7 +27,7 @@ boto3
 psycopg2-binary
 mlflow
 docling
-faiss-cpu   
+faiss-cpu
 accelerate
 peft
 IPython

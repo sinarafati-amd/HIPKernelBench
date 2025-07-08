@@ -10,7 +10,7 @@ install_rocm_pytorch:
 	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
 
 dev-setup:
- 	uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt && \
+	uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt && \
 	uv pip install -r requirements.txt
 
 run:
@@ -42,5 +42,5 @@ analyse-fastp:
 grpo-finetune:
 	python -m src.training.grpo_finetune --logfile=logs/combined_generation_history.jsonl
 	
-omniwise-server: 
-	python -m src.omniwise.resources.python.inference_server 
+omniwise-server:
+	python -m src.omniwise.resources.python.inference_server
