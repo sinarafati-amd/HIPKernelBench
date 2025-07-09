@@ -74,7 +74,9 @@ The framework follows a two-phase approach:
    cd HIPKernelBench/kernel-agentic
    ```
 
-2. Install dependencies:
+1. Install [uv](https://docs.astral.sh/uv/concepts/tools/).
+
+1. Install dependencies:
    ```bash
    make dev-setup
    ```

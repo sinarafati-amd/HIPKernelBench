@@ -16,7 +16,7 @@ protobuf
 openai
 sentencepiece
 rank_bm25
-duckduckgo_search
+ddgs
 requests
 beautifulsoup4
 optuna
