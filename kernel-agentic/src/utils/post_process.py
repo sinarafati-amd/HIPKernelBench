@@ -193,11 +193,9 @@ def main(input):
         list_baselines_flat,
         fill=True, alpha=0.15,
         label='Torch',
-        # don’t extend beyond your data
         cut=0,
         # hard‐clip at 0 on the left
         clip=(0, None),
-        # if the default bandwith is too smooth, shrink it
         bw_adjust=0.8,
         common_norm=False
     )

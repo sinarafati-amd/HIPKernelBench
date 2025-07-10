@@ -8,8 +8,7 @@ from tqdm import tqdm
 import os
 import textwrap
 
-def main(logfile: str, lora_dir: str, output_csv: str, device: str):
-    # -- load your records and run inference as before --
+def main(logfile: str, lora_dir: str, output_csv: str, device: str):-
     records = []
     with open(logfile, "r") as f:
         for line in f:
@@ -47,7 +46,6 @@ def main(logfile: str, lora_dir: str, output_csv: str, device: str):
     print(f"\nSaved {len(df)} records to {output_csv}\n")
 
     # assume df has columns "ground_truth" and "LORA"
-    # 1) compute column width from your terminal
     term_width = os.get_terminal_size().columns
     gutter = 4
     col_width = (term_width - gutter) // 2

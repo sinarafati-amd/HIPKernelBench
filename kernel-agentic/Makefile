@@ -2,7 +2,7 @@
 
 LANG ?= hip
 TORCH_FILE_DIR ?= torch_codes
-
+MODE ?= multimodal
 .PHONY: vector-store
 vector-store:
 	python -m src.data.build_vector_store --language "$(LANG)"
@@ -12,7 +12,20 @@ install_rocm_pytorch:
 
 dev-setup:
 	uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt --no-cache-dir && \
+
+.PHONY: vector-store
+vector-store:
+	@echo "Building vector store for lang='$(LANG)' mode='$(MODE)'..."
+	python -m src.data.build_vector_store \
+	       --language "$(LANG)" \
+	       --mode "$(MODE)"
+
+install_rocm_pytorch:
+	uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
+
+dev_setup:
 	uv pip install -r requirements.txt
+
 
 run:
 	@mkdir -p logs
@@ -45,3 +58,7 @@ grpo-finetune:
 	
 omniwise-server:
 	python -m src.omniwise.resources.python.inference_server
+
+.PHONY: download_nltk
+download_nltk:
+	python -m nltk.downloader punkt punkt_tab

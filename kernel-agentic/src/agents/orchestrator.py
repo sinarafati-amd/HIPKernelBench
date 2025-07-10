@@ -130,7 +130,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     i, no_gain, fails = 0, 0, 0
     feedback = ""
     previous_kernel = ""  # Track previous kernel for iterations 2+
-
+   
     # ---------- build context -------------------------------------------
     doc_ctx    = researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
     search_ctx = searcher.search(torch_expl)  if PIPELINE_CFG['online_search'] else ''

@@ -35,3 +35,8 @@ huggingface-hub
 aiofiles
 datasets
 torch_geometric
+pandas
+markdown 
+typing_extensions
+ddgs
+nltk

@@ -1,7 +1,14 @@
 import yaml, json
 from typing import Dict, Any
-from ..utils.llm_client import chat
-from ..utils.logger import log
+import os 
+import sys 
+from pathlib import Path
+dir_path=str(Path(os.path.dirname(Path(__file__))).parent)
+if dir_path not in sys.path:
+    sys.path.append(dir_path)
+
+from utils.llm_client import chat
+from utils.logger import log
 
 CFG = yaml.safe_load(open("config.yml"))
 

@@ -1,131 +1,152 @@
+
+from __future__ import annotations
 import pdfplumber, faiss, yaml, pickle, argparse, os, textwrap, glob
+import shutil, subprocess, sys, tempfile
 from .embeddings import get_embedder
+from .chunking import semantic_split
+from typing import List
+from pathlib import Path
 import numpy as np
 
-def chunk(txt, n):
-    for i in range(0, len(txt), n):
-        yield txt[i:i+n]
-
-def build_language_store(language: str, docs_path: str = None):
-    """Build vector store for a specific language"""
-    cfg = yaml.safe_load(open("config.yml"))["rag"]
-    embed = get_embedder()
-    
-    if docs_path is None:
-        docs_path = f"docs/{language}"
-    
-    if not os.path.exists(docs_path):
-        print(f"Warning: Documentation path {docs_path} does not exist for {language}")
-        return
-    
-    paragraphs = []
-
-    # Find all PDF files in the language-specific docs folder
-    pdf_files = glob.glob(os.path.join(docs_path, "*.pdf"))
-    
-    if not pdf_files:
-        print(f"Warning: No PDF files found in {docs_path}")
-    
-    print(f"Building vector store for {language} from {len(pdf_files)} PDF(s)...")
-    
-    for pdf_file in pdf_files:
-        print(f"  Processing: {pdf_file}")
-        with pdfplumber.open(pdf_file) as pdf_in:
-            for p in pdf_in.pages:
-                text = p.extract_text()
-                if text:  # Only process non-empty pages
-                    paragraphs.extend(chunk(text, cfg["chunk_size"]))
-    
-    
-    # Find all text files in the language-specific docs folder
-    text_files = glob.glob(os.path.join(docs_path, "**/*.txt"), recursive=True)
-    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.md"), recursive=True))
-    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.csv"), recursive=True))
-    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.json"), recursive=True))
-    text_files.extend(glob.glob(os.path.join(docs_path, "**/*.html"), recursive=True))
-    if not text_files:
-        print(f"Warning: No text files found in {docs_path}")
-        return
-    
-    print(f"  Extracted {len(text_files)} text files")
-    for text_file in text_files:
-        print(f"  Processing: {text_file}")
-        with open(text_file, "r") as f:
-            text = f.read()
-            if text:
-                paragraphs.extend(chunk(text, cfg["chunk_size"]))
+_CFG = yaml.safe_load(open("config.yml"))
+_RAG = _CFG["rag"]
 
 
-    if not paragraphs:
-        print(f"Warning: No text extracted from PDFs or text files in {docs_path}")
-        return
-    
-    print(f"  Extracted {len(paragraphs)} text chunks")
-    
-    # Create embeddings
-    raw_vecs = embed.embed_documents(paragraphs)
-    vecs = np.array(raw_vecs, dtype="float32")
-    assert vecs.ndim == 2, f"Expected 2D array, got shape {vecs.shape}"
-    
-    # Build FAISS index
-    index = faiss.IndexFlatL2(vecs.shape[1])
+# ---------- helpers -------------------
+# --------------------------------------
+def _chunk_plain(text: str, n_tokens: int) -> List[str]:
+    """Old simple fixed-size chunker (≈ characters)."""
+    return [text[i : i + n_tokens] for i in range(0, len(text), n_tokens)]
+
+
+def _collect_text(files: List[str], mode: str) -> List[str]:
+    """
+    Extract & chunk documents.
+    In multimodal mode each *file* is already an enhanced MD file.
+    """
+
+    blocks: List[str] = []
+    if mode == "text":
+        for fp in files:
+            if fp.endswith(".pdf"):
+                with pdfplumber.open(fp) as pdf:
+                    for page in pdf.pages:
+                        blocks.append(page.extract_text() or "")
+            else:
+                blocks.append(Path(fp).read_text(encoding="utf-8", errors="ignore"))
+        # simple chunking
+        chunks: List[str] = []
+        for txt in blocks:
+            chunks.extend(_chunk_plain(txt, _RAG["chunk_size"]))
+    else:  # multimodal
+        for md in files:
+            txt = Path(md).read_text(encoding="utf-8", errors="ignore")
+            blocks.extend(semantic_split(txt, _RAG["chunk_size"]))
+        chunks = blocks  # already split
+    print(f"  ⮑ {len(chunks)} chunks ready")
+    return chunks
+
+
+def _write_store(chunks: List[str], store_dir: Path, embed) -> None:
+    vecs = np.asarray(embed.embed_documents(chunks), dtype="float32")
+    faiss.normalize_L2(vecs)
+    index = faiss.IndexFlatIP(vecs.shape[1])
     index.add(vecs)
-    
-    # Save language-specific vector store
-    store_dir = f"vector_store/{language}"
-    os.makedirs(store_dir, exist_ok=True)
-    
-    faiss.write_index(index, os.path.join(store_dir, "store.index"))
-    with open(os.path.join(store_dir, "text.pkl"), "wb") as f:
-        pickle.dump(paragraphs, f)
-    
-    print(f"  Vector store saved to {store_dir}")
 
-def main(args):
-    """Main function supporting both single language and all languages"""
-    if args.language:
-        # Build for specific language
-        build_language_store(args.language, args.docs_path)
-    elif args.all:
-        # Build for all supported languages
-        languages = ["hip", "cuda", "triton"]
-        for lang in languages:
-            build_language_store(lang)
-    elif args.pdf:
-        # Legacy support: build for specific PDF (assume HIP)
-        print("Legacy mode: building for HIP from specific PDF")
-        cfg = yaml.safe_load(open("config.yml"))["rag"]
-        embed = get_embedder()
-        paragraphs = []
-        
-        with pdfplumber.open(args.pdf) as pdf_in:
-            for p in pdf_in.pages:
-                text = p.extract_text()
-                if text:
-                    paragraphs.extend(chunk(text, cfg["chunk_size"]))
-        
-        raw_vecs = embed.embed_documents(paragraphs)
-        vecs = np.array(raw_vecs, dtype="float32")
-        index = faiss.IndexFlatIP(vecs.shape[1])
-        index.add(vecs)
-        
-        store_dir = "vector_store/hip"
-        os.makedirs(store_dir, exist_ok=True)
-        faiss.write_index(index, os.path.join(store_dir, "store.index"))
-        with open(os.path.join(store_dir, "text.pkl"), "wb") as f:
-            pickle.dump(paragraphs, f)
-    else:
-        print("Error: Must specify --language, --all, or --pdf")
+    store_dir.mkdir(parents=True, exist_ok=True)
+    index_path = store_dir / "store.index"
+    faiss.write_index(index, str(index_path))
+    with (store_dir / "text.pkl").open("wb") as f:
+        pickle.dump(chunks, f)
+    print(f"  ✔ Saved vector store → {store_dir}")
+
+
+# ---------- multimodal preprocessing ---------------------------------------
+def _run_docling(pdf_path: Path, scratch: Path) -> List[Path]:
+    """
+    Convert one PDF to enhanced markdown(s) via pdf_digest.
+    Returns list of *.md files created.
+    """
+    scratch.mkdir(exist_ok=True, parents=True)
+    cmd = [
+        sys.executable,
+        os.path.join(Path(__file__).parent.parent,'utils','pdf_digest.py'),
+        "--pdf_path",  str(pdf_path),
+        "--output_dir", str(scratch),
+    ]
+    print(f"  → Docling digest: {' '.join(cmd)}")
+    subprocess.run(cmd, check=True)
+    # pick the enhanced markdown(s)
+    return list(scratch.glob("*-with-image-refs-enhanced.md"))
+
+
+def _prepare_multimodal_docs(docs_path: Path) -> List[Path]:
+    """
+    For every PDF in docs_path, run Docling if enhanced MD not cached.
+    Caches are stored next to the PDF (*/docname_mm/*).
+    """
+    md_files: List[Path] = []
+
+    for pdf in docs_path.glob("*.pdf"):
+        cache_dir = pdf.with_suffix("").with_name(pdf.stem + "_mm")
+        enhanced = list(cache_dir.glob("*-with-image-refs-enhanced.md"))
+        if not enhanced:
+            # (re)generate
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+            cache_dir.mkdir()
+            enhanced = _run_docling(str(pdf.resolve()), cache_dir)
+        md_files.extend(enhanced)
+    return md_files
+
+
+# ---------- build per language ---------------------------------------------
+def build(language: str, docs_path: str | None, mode: str) -> None:
+    embed = get_embedder()
+    docs_dir = Path(docs_path) if docs_path else Path("docs") / language
+    if not docs_dir.exists():
+        print(f"⚠  Docs path missing: {docs_dir}")
         return
+
+    if mode == "multimodal":
+        files = _prepare_multimodal_docs(docs_dir)
+    else:  # text
+        pdfs = list(docs_dir.glob("*.pdf"))
+        texts = [*docs_dir.rglob("*.txt")]
+        files = pdfs + texts
+
+    if not files:
+        print(f"⚠  No source files found for {language.upper()} ({mode})")
+        return
+
+    print(f"Building store for {language.upper()} ({mode}) from {len(files)} file(s)")
+    chunks = _collect_text([str(f) for f in files], mode)
+    store_dir = Path("vector_store") / language 
+    _write_store(chunks, store_dir, embed)
+
+
+def _all_languages(args):
+    for lang in ["hip", "cuda", "triton"]:
+        build(lang, args.docs_path, args.mode)
+
+
+# ---------- CLI ------------------------------------------------------------
+def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--language", choices=["hip", "cuda", "triton"])
+    ap.add_argument("--docs-path", help="Custom docs folder")
+    ap.add_argument("--all", action="store_true")
+    ap.add_argument("--mode", choices=["text", "multimodal"],
+                    default=_CFG.get("default_mode", "text"))
+    args = ap.parse_args()
+
+    if args.all:
+        _all_languages(args)
+    elif args.language:
+        build(args.language, args.docs_path, args.mode)
+    else:
+        ap.error("Choose --language or --all")
+
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Build language-specific vector stores")
-    ap.add_argument("--language", choices=["hip", "cuda", "triton"], 
-                   help="Build vector store for specific language")
-    ap.add_argument("--docs-path", help="Custom path to documentation folder")
-    ap.add_argument("--all", action="store_true", 
-                   help="Build vector stores for all languages")
-    ap.add_argument("--pdf", help="Legacy: build from specific PDF (assumes HIP)")
-    
-    args = ap.parse_args()
-    main(args)
+    main()

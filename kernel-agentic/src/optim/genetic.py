@@ -30,7 +30,6 @@ toolbox.register("select", tools.selTournament, tournsize=3)
 
 class GeneticOpt:
     def __init__(self, space: Dict[str,List[Any]], pop_size=16, ngen=20):
-        # build your toolbox.RANGE dynamically
         from deap import base, creator, tools
         creator.create("FitnessMax", base.Fitness, weights=(1.0,))
         creator.create("Individual", list,   fitness=creator.FitnessMax)
