@@ -101,7 +101,7 @@ class RAGResearcher(BaseAgent):
         D, I = self.index.search(q.reshape(1, -1), _RAG["n_neighbors"])
         sims = D[0]
         idxs = I[0]
-        breakpoint()
+
         # Filter by similarity threshold
         # apply threshold using the dynamic threshold variable
         keep = [(int(i), float(s)) for i, s in zip(idxs, sims) if float(s) >= 0.4]    
