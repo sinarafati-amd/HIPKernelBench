@@ -7,7 +7,7 @@ os.environ.setdefault("MIOPEN_ENABLE_GPUKERN_DEBUG", "0")  # faster compile
 os.environ.setdefault("MIOPEN_USER_DB_PATH",  "/tmp/miopen_kcache")
 
 
-def _baseline_latency(
+def baseline_latency(
     torch_file: str,
     n_trial: int = 30,
     warmup: int = 1,

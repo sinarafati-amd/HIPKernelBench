@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any
 from .torch_analyser import TorchAnalyser
 from .feedback_analyzer import KernelFeedbackAnalyser
-from .baseline import _baseline_latency
+from .baseline import baseline_latency
 from .rag_researcher import RAGResearcher
 from .kernel_generator import KernelGenerator
 from .executor import Executor
@@ -41,7 +41,6 @@ def _apply_tunables(code: str, params: Dict[str, Any]) -> str:
         patched = patched.replace(placeholder, str(v))
     return patched
 
-
 def _extract_latency_us(stats: Dict[str, Any] | None) -> float | None:
     """
     Return avg_us from stats or None if missing/NaN/zero.
@@ -53,6 +52,45 @@ def _extract_latency_us(stats: Dict[str, Any] | None) -> float | None:
         return float(val) if val and val > 0 else None
     except (TypeError, ValueError):
         return None
+
+def _parse_torch_analysis(torch_expl_raw, kernel_lang):
+    # Decode the JSON response
+    try:
+        # Extract JSON from the response if it's wrapped in ```json blocks
+        json_match = re.search(r'```json\n(.*?)\n```', torch_expl_raw, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            json_str = torch_expl_raw
+        
+        torch_analysis = json.loads(json_str)
+        torch_expl = torch_analysis.get("explanation", "")
+        kernels = torch_analysis.get("top_kernels", [])
+        
+    except (json.JSONDecodeError, AttributeError) as e:
+        print(f"Failed to decode torch analysis JSON: {e}")
+        torch_expl = torch_expl_raw
+        kernels = []
+
+    cheat_code = ""
+    path_sheets = Path(__file__).parent.parent / "sheets"
+    if os.path.exists(path_sheets):
+        if len(kernels) > 0:
+            kernel_sheet = os.path.join(path_sheets, kernel_lang + ".json")
+            with open(kernel_sheet, 'r') as f:
+                kernel_data = json.load(f)
+            # loop over all kernels and make one string with join \n pulling "name" and "kernel"
+            cheat_code = "\n   "
+            
+            for kernel_name in kernels:
+                # Find the kernel in the list of kernel dictionaries
+                for kernel_entry in kernel_data['kernels']:
+                    if kernel_entry.get('name') == kernel_name:
+                        # Format the string with name and kernel
+                        cheat_code += f"{kernel_entry['name']}: the torch code: \n\n {kernel_entry['pytorch']} \n\n and corresponding kernel code: \n\n {kernel_entry['kernel']}\n"
+                        break
+
+    return torch_expl, cheat_code
 
 def orchestrate(torch_file: str, iterations: int | None):
 
@@ -84,45 +122,11 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     torch_expl_raw = analyser.analyse(torch_code)
 
-    # ---- find corresponding kernels for cheat sheet ---------------------------------------------------
-    # Decode the JSON response
-    try:
-        # Extract JSON from the response if it's wrapped in ```json blocks
-        json_match = re.search(r'```json\n(.*?)\n```', torch_expl_raw, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1)
-        else:
-            json_str = torch_expl_raw
-        
-        torch_analysis = json.loads(json_str)
-        torch_expl = torch_analysis.get("explanation", "")
-        kernels = torch_analysis.get("top_kernels", [])
-        
-    except (json.JSONDecodeError, AttributeError) as e:
-        print(f"Failed to decode torch analysis JSON: {e}")
-        torch_expl = torch_expl_raw
-        kernels = []
+    # ---- get explanation and corresponding kernels as cheat sheet ---------------------------------------------------
+    torch_expl, cheat_code = _parse_torch_analysis(torch_expl_raw, kernel_lang)
 
-    cheat_code = ""
-    path_sheets = os.path.join(Path(__file__).parent.parent, "sheets")
-    if os.path.exists(path_sheets):
-        if len(kernels) > 0:
-            kernel_sheet = os.path.join(path_sheets, kernel_lang + ".json")
-            with open(kernel_sheet, 'r') as f:
-                kernel_data = json.load(f)
-            # loop over all kernels and make one string with join \n pulling "name" and "kernel"
-            cheat_code = "\n   "
-            
-            for kernel_name in kernels:
-                # Find the kernel in the list of kernel dictionaries
-                for kernel_entry in kernel_data['kernels']:
-                    if kernel_entry.get('name') == kernel_name:
-                        # Format the string with name and kernel
-                        cheat_code += f"{kernel_entry['name']}: the torch code: \n\n {kernel_entry['pytorch']} \n\n and corresponding kernel code: \n\n {kernel_entry['kernel']}\n"
-                        break
-
-    # ---- intializtion ---------------------------------------------------
-    baseline_us= _baseline_latency(torch_file, n_trial=2)
+    # ---- initialization ---------------------------------------------------
+    baseline_us = baseline_latency(torch_file, n_trial=2)
     best_code: str | None   = None
     best_us                 = float("inf")
     best_stats: Dict[str,Any]|None = None
@@ -130,7 +134,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     i, no_gain, fails = 0, 0, 0
     feedback = ""
     previous_kernel = ""  # Track previous kernel for iterations 2+
-   
+
     # ---------- build context -------------------------------------------
     doc_ctx    = researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
     search_ctx = searcher.search(torch_expl)  if PIPELINE_CFG['online_search'] else ''
