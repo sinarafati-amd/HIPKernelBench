@@ -136,31 +136,19 @@ def orchestrate(torch_file: str, iterations: int | None):
     previous_kernel = ""  # Track previous kernel for iterations 2+
 
     # ---------- build context -------------------------------------------
-    doc_ctx    = researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
-    search_ctx = searcher.search(torch_expl)  if PIPELINE_CFG['online_search'] else ''
-    
-    full_ctx= ""
-
-    if PIPELINE_CFG['rag_enabled']:
-        full_ctx  = full_ctx + "\n\n[Documentation Context]\n" + doc_ctx
-    if PIPELINE_CFG['online_search']:
-        full_ctx   = full_ctx + "\n\n[Internet Search Results]\n" + search_ctx
-
+    doc_ctx    = "\n\n[Documentation Context]\n" + researcher.query(torch_expl) if PIPELINE_CFG['rag_enabled'] else ''
+    search_ctx = "\n\n[Internet Search Results]\n" + searcher.search(torch_expl) if PIPELINE_CFG['online_search'] else ''
+    full_ctx = doc_ctx + search_ctx
 
     # ---- Phase 1 LLM based kernel generation loop ---------------------------------------------------
     while True:
         log.append({"event": "iteration_start", "iter": i})
-        user_prompt = generator._build_user_prompt(torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code, full_ctx, feedback, previous_kernel)
+        code_input = torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code
 
-        code_input = torch_expl + "\n\n [Here is the PyTorch Code:]  \n\n" + torch_code
-        
-        if PIPELINE_CFG['cheat_sheet']:
-            if i == 0:
-                code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code
-            else:
-                code_input += "\n\n [Here are the available kernels to learn from:] \n\n"
-        else:
-            code_input += "\n\n [Here are the available kernels to learn from:] \n\n"
+        # cheat sheet of relevant kernels is only necessary on first iteration because subsequent iterations
+        # already have an existing kernel to work from that the LLM wrote
+        code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''
+
         kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
         # ---------- compile & run -------------------------------------------
         try:
@@ -260,7 +248,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             "correct"  : correct,
             "speedup"  : speedup,
             "hip_us"   : hip_us_raw,
-            "prompt"   : user_prompt,
+            "prompt"   : generator.build_user_prompt(code_input, full_ctx, feedback, previous_kernel),
             "response" : kernel_code,
             **(stats or {})
         })

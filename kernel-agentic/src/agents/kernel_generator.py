@@ -37,7 +37,7 @@ class KernelGenerator(BaseAgent):
         specs = get_gpu_specs()
         super().__init__(f"{self.kernel_lang}_generator", "<will-be-replaced>")
 
-    def _build_user_prompt(self, torch_expl: str, doc_ctx: str, feedback: str, previous_kernel: str = "", iter_idx: int = 0) -> str:
+    def build_user_prompt(self, torch_expl: str, doc_ctx: str, feedback: str, previous_kernel: str = "", iter_idx: int = 0) -> str:
         lang_map = {
             "hip": "HIP",
             "cuda": "CUDA", 
@@ -114,7 +114,7 @@ class KernelGenerator(BaseAgent):
         # ------------------------------------------------------------------
         # 2) Build the user message (torch-explanation + RAG chunks + feedback + previous kernel)
         # ------------------------------------------------------------------
-        user_content = self._build_user_prompt(torch_expl, doc_context, feedback, previous_kernel, iter_idx)
+        user_content = self.build_user_prompt(torch_expl, doc_context, feedback, previous_kernel, iter_idx)
         messages     = [self.system_prompt, {"role": "user", "content": user_content}]
 
         # ------------------------------------------------------------------
