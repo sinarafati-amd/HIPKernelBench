@@ -3,12 +3,6 @@
 LANG ?= hip
 TORCH_FILE_DIR ?= torch_codes
 MODE ?= multimodal
-.PHONY: vector-store
-vector-store:
-	python -m src.data.build_vector_store --language "$(LANG)"
-
-install_rocm_pytorch:
-	pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3 --no-cache-dir
 
 dev-setup:
 	uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt --no-cache-dir && \

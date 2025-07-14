@@ -1,10 +1,10 @@
 # Global configuration
 
 Pipeline:
-  rag_enabled: true
+  rag_enabled: false
   online_search: false
   cheat_sheet: true
-  omnivise: false
+  omnivise: true
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
   search:
@@ -38,9 +38,6 @@ openai:
       api_version: 2024-12-01-preview
       model_name: o3
       temperature: 0.3
-
-  
-
 gpu_specs:
   arch: null
   wavefront: null
@@ -52,7 +49,7 @@ eval:
   n_trial: 3
 
 stopping:
-  min_iters: 3          # never exit earlier than this
+  min_iters: 4          # never exit earlier than this
   max_iters: 10          # absolute cap (safety valve)
   target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
