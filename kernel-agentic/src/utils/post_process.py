@@ -840,8 +840,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
     for rank, (run_name, entry) in enumerate(sorted_entries, 1):
         # Only add entries with valid run names
         if run_name and run_name.strip():
-            emoji = "🥇" if rank == 1 else "🥈" if rank == 2 else "🥉" if rank == 3 else ""
-            content += f"| {rank} {emoji} | {run_name} | {entry['date_version']} | {entry['overall_speedup']:.2f}x | {entry['success_rate']:.1f}% | {entry['avg_torch_time']:.1f} | {entry['avg_hip_time']:.1f} | {entry['total_kernels']} | {entry['configuration']} |\n"
+            content += f"| {rank}| {run_name} | {entry['date_version']} | {entry['overall_speedup']:.2f}x | {entry['success_rate']:.1f}% | {entry['avg_torch_time']:.1f} | {entry['avg_hip_time']:.1f} | {entry['total_kernels']} | {entry['configuration']} |\n"
     
     content += "\n## 📈 Performance Charts\n\n"
     

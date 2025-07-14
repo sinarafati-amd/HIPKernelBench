@@ -6,8 +6,8 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 | Rank | Run Name | Date/Version | Overall Speedup | Success Rate (%) | Avg Torch Time (μs) | Avg HIP Time (μs) | Total Kernels | Configuration |
 |------|----------|--------------|-----------------|------------------|-------------------|----------------|---------------|---------------|
-| 1 🥇 | KernelBench-level1-v0 | KernelBench-level1-v0 | 0.53x | 100.0% | 1165.8 | 15029.1 | 101 | Lang: hip, Search: genetic, Gen: o3, Ana: GPT-4o |
-| 2 🥈 | KernelBench-level1-v1 | KernelBench-level1-v1 | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Lang: hip, Search: genetic, Gen: o3, Ana: GPT-4o |
+| 1| KernelBench-level1-v0 | KernelBench-level1-v0 | 0.53x | 100.0% | 1165.8 | 15029.1 | 101 | Lang: hip, Search: genetic, Gen: o3, Ana: GPT-4o |
+| 2| KernelBench-level1-v1 | KernelBench-level1-v1 | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Lang: hip, Search: genetic, Gen: o3, Ana: GPT-4o |
 
 ## 📈 Performance Charts
 
@@ -36,7 +36,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 #### Pipeline Settings
 - **Kernel Language**: hip
-- **RAG Enabled**: ✅
+- **RAG Enabled**: ❌
 - **Online Search**: ❌
 - **Cheat Sheet**: ✅
 - **Omnivise**: ✅
@@ -110,4 +110,4 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 - **Prompts**: Links to actual prompt files used during optimization
 
 ---
-*Last updated: 2025-07-14 22:13:07*
+*Last updated: 2025-07-14 22:20:01*
