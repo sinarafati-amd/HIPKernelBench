@@ -1,0 +1,64 @@
+version: '3.8'
+services:
+ postgres:
+   image: postgres:13
+   environment:
+     POSTGRES_USER: mlflow
+     POSTGRES_PASSWORD: mlflow_password
+     POSTGRES_DB: mlflow
+   volumes:
+     - postgres_data:/var/lib/postgresql/data
+   restart: unless-stopped
+
+ pgadmin:
+   image: dpage/pgadmin4:latest
+   environment:
+     PGADMIN_DEFAULT_EMAIL: admin@example.com
+     PGADMIN_DEFAULT_PASSWORD: admin
+     PGADMIN_LISTEN_PORT: 5050
+   ports:
+     - "5050:5050"
+   volumes:
+     - pgadmin_data:/var/lib/pgadmin
+   depends_on:
+     - postgres
+   restart: unless-stopped
+
+ minio:
+   image: minio/minio:latest
+   environment:
+     MINIO_ROOT_USER: minioaccesskey
+     MINIO_ROOT_PASSWORD: miniosecretkey
+   command: server /data --console-address ":9001"
+   ports:
+     - "9000:9000"
+     - "9001:9001"
+   volumes:
+     - minio_data:/data
+   restart: unless-stopped
+
+ mlflow:
+   build: .
+   environment:
+     MLFLOW_TRACKING_URI: http://mlflow:5000
+     AWS_ACCESS_KEY_ID: minioaccesskey
+     AWS_SECRET_ACCESS_KEY: miniosecretkey
+     AWS_ENDPOINT_URL: http://minio:9000
+     AWS_PYTHON_DISABLE_SSL: "true"
+   command: >
+     mlflow server
+     --backend-store-uri postgresql://mlflow:mlflow_password@postgres:5432/mlflow
+     --default-artifact-root s3://mlflow-artifacts/
+     --host 0.0.0.0
+     --port 5000
+   ports:
+     - "5000:5000"
+   depends_on:
+     - postgres
+     - minio
+   restart: unless-stopped
+
+volumes:
+ postgres_data:
+ minio_data:
+ pgadmin_data:

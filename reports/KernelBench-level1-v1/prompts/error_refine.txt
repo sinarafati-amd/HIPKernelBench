@@ -1,0 +1,7 @@
+The compiler failed with:
+
+<stderr>
+{summary}
+</stderr>
+
+Fix the issues while preserving API.

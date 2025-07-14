@@ -8,7 +8,7 @@ def get_gpu_specs() -> dict:
     """
     try:
         out = subprocess.check_output(["rocminfo", "--json"], text=True)
-        raise ValueError("Your system's `rocminfo` does not return JSON. Fallback activated.")
+        raise ValueError("system's `rocminfo` does not return JSON. Fallback activated.")
     except Exception:
         try:
             out = subprocess.check_output(["rocminfo"], text=True)

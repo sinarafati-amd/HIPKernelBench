@@ -1,5 +1,6 @@
 import subprocess, tempfile, os, uuid, textwrap, yaml, json
 from .logger import log
+from ..utils.error_digester import digest
 
 CFG = yaml.safe_load(open("config.yml"))
 
@@ -26,7 +27,8 @@ def compile_hip(source_code: str) -> str:
         stdout = e.output
         stderr = e.stderr
         log.append({"event": "compile_error", "stdout": stdout, "stderr": stderr})
-        raise
+        # raise RuntimeError(digest(e.output))
+        raise RuntimeError(e.output)
 
     return out_name, stdout, stderr, hip_file
 
