@@ -704,3 +704,5 @@ kernel-agentic/logsv0/*
 kernel-agentic/torch_codesv0/*
 dump
 kernel-agentic/mlruns/*
+kernel-agentic/logs-level1-v1/*
+kernel-agentic/logs-level1-v0/*
