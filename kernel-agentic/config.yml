@@ -57,7 +57,7 @@ stopping:
   max_failures: 4       # bail if compile/run failed this many times in a row
   
 hip:
-  gpu_arch: gfx1100
+  gpu_arch: gfx942 # Target GPU architecture (e.g., gfx942 for MI300X)
   block_size: 256      
   n_samples: 1
 
