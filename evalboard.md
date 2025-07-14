@@ -25,7 +25,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 ![KernelBench-level1-v1 Performance Chart](reports/KernelBench-level1-v1/average_baseline_barplot_grouped_log.png)
 
 #### Performance Distribution
-![KernelBench-level1-v1 Density Plot](kernel-agentic/reports/KernelBench-level1-v1/baseline_density_cleaned.png)
+![KernelBench-level1-v1 Density Plot](reports/KernelBench-level1-v1/baseline_density_cleaned.png)
 
 *Showing 2 performance chart(s)*
 
@@ -39,7 +39,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 - **RAG Enabled**: ❌
 - **Online Search**: ❌
 - **Cheat Sheet**: ✅
-- **Omnivise**: ✅
+- **Omnivise**: ❌
 - **Correctness Check**: ❌
 
 #### Search Configuration
