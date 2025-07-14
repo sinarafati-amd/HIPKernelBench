@@ -1212,7 +1212,7 @@ def generate_performance_plots(df: pd.DataFrame, input_folder: str) -> None:
 
     ax1.set_xlabel('Kernel Groups', fontsize=12, fontweight='bold')
     ax1.set_ylabel('Average Execution Time (μs)', fontsize=12, fontweight='bold')
-    ax1.set_title('Average Performance by Kernel Group\n(Lower is Better)', 
+    ax1.set_title('Average Performance by Kernel Group', 
                   fontsize=14, fontweight='bold', pad=20)
     ax1.set_xticks(x)
     ax1.set_xticklabels(df_sorted['Group'], rotation=45, ha='right')

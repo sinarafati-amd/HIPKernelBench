@@ -36,7 +36,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 #### Pipeline Settings
 - **Kernel Language**: hip
-- **RAG Enabled**: ❌
+- **RAG Enabled**: ✅
 - **Online Search**: ❌
 - **Cheat Sheet**: ✅
 - **Omnivise**: ❌
