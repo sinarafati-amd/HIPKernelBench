@@ -7,6 +7,7 @@ Pipeline:
   omnivise: true
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
+  mode: kernel2kernel  # Options: pytorch2kernel, kernel2kernel
   search:
     enabled: true
     method: genetic         # bayes | genetic

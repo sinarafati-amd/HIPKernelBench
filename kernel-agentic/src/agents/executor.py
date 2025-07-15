@@ -16,7 +16,6 @@ class Executor:
         self.kernel_lang = kernel_lang.lower()
     
     def run(self, kernel_code: str) -> Tuple[Optional[Dict], Optional[str]]:
-        
         bin_path, stdout, stderr, kernel_file = compile_kernel(kernel_code, self.kernel_lang)
         # if there was a compilation/runtime error, return no stats and the stderr
         if stderr:

@@ -2,6 +2,7 @@
 
 LANG ?= hip
 TORCH_FILE_DIR ?= torch_codes
+KERNEL_FILE_DIR ?= kernel_codes
 MODE ?= multimodal
 
 dev-setup:
@@ -30,6 +31,27 @@ run:
 		mkdir -p logs/$$name; \
 		mv logs/generation_history.jsonl logs/$$name/; \
 	done
+
+optimize-kernels:
+	@mkdir -p logs
+	@if [ "$(KERNEL_FILE)" ]; then \
+		echo "Optimizing single kernel file: $(KERNEL_FILE)"; \
+		python -m src.agents.orchestrator --mode kernel2kernel --kernel-file "$(KERNEL_FILE)"; \
+	else \
+		echo "Optimizing all kernel files in $(KERNEL_FILE_DIR)"; \
+		for file in $(KERNEL_FILE_DIR)/*.hip $(KERNEL_FILE_DIR)/*.cu $(KERNEL_FILE_DIR)/*.py; do \
+			if [ -f "$$file" ]; then \
+				base=$${file##*/}; \
+				echo "Optimizing $$file"; \
+				name=$${base%.*}; \
+				python -m src.agents.orchestrator --mode kernel2kernel --kernel-file $$file; \
+				mkdir -p logs/$${name}_opt; \
+				if [ -f logs/generation_history.jsonl ]; then \
+					mv logs/generation_history.jsonl logs/$${name}_opt/; \
+				fi; \
+			fi; \
+		done; \
+	fi
 
 train-lora:
 	python -m src.training.lora_finetune --logfile logs/combined_SFT_generation_history.jsonl

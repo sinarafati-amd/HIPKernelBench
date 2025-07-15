@@ -8,9 +8,15 @@ Project Address： https://github.com/sinarafati-amd/HIPKernelBench/tree/dev_fea
 
 HIPKernelBench is a comprehensive system designed to automatically translate PyTorch operations into optimized GPU kernels using an agentic AI approach. The system leverages large language models (LLMs) to analyze PyTorch code, generate equivalent GPU implementations, and optimize them for performance using genetic or Bayesian search methods.
 
-The framework follows a two-phase approach:
-1. **Phase 1 - LLM Synthesis**: Analyze PyTorch code and generate functionally correct HIP kernels
-2. **Phase 2 - Optimization**: Apply Bayesian or genetic optimization techniques to fine-tune kernel parameters
+The framework also supports **kernel-to-kernel optimization**, allowing you to optimize existing kernel code in HIP, CUDA, or Triton.
+
+The framework supports two modes:
+1. **PyTorch to Kernel** (Default): Analyze PyTorch code and generate optimized GPU kernels
+2. **Kernel to Kernel**: Optimize existing kernel code for better performance
+
+Each mode follows a two-phase approach:
+1. **Phase 1 - LLM Synthesis/Optimization**: Analyze code and generate/optimize kernels
+2. **Phase 2 - Hyperparameter Optimization**: Apply Bayesian or genetic optimization techniques to fine-tune kernel parameters
 
 ## Repository Structure
 

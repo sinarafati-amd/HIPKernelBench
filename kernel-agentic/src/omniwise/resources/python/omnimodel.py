@@ -68,7 +68,7 @@ class OmniModel:
         top_k=10,
         top_p=0.9,
         temperature=1,
-        max_length=2048,
+        max_length=3072,
         json_only=False,
     ):
         input_ids, attention_mask, _ = self.tokenize(
