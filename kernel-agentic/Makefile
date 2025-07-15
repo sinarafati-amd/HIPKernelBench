@@ -20,7 +20,6 @@ install_rocm_pytorch:
 dev_setup:
 	uv pip install -r requirements.txt
 
-
 run:
 	@mkdir -p logs
 	@for file in $(TORCH_FILE_DIR)/*.py; do \
@@ -56,3 +55,12 @@ omniwise-server:
 .PHONY: download_nltk
 download_nltk:
 	python -m nltk.downloader punkt punkt_tab
+
+post-process:
+	@if [ -z "$(INPUT_DIR)" ] || [ -z "$(RUN_NAME)" ]; then \
+		echo "Please provide INPUT_DIR and RUN_NAME variables."; \
+		echo "Example: make post-process INPUT_DIR=logs RUN_NAME=my_run"; \
+		exit 1; \
+	fi; \
+	echo "Running post-processing script with input=$(INPUT_DIR) and run-name=$(RUN_NAME)..."; \
+	python src/utils/post_process.py --input "$(INPUT_DIR)" --run-name "$(RUN_NAME)"
