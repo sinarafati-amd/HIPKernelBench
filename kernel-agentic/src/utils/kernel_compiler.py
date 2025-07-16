@@ -1,7 +1,14 @@
 import yaml
-from .hip_compiler import compile_hip
-from .cuda_compiler import compile_cuda
-from .triton_compiler import compile_triton
+import os 
+import sys 
+from pathlib import Path
+dir_path=str(Path(os.path.dirname(Path(__file__))).parent)
+if dir_path not in sys.path:
+    sys.path.append(dir_path)
+
+from utils.hip_compiler import compile_hip
+from utils.cuda_compiler import compile_cuda
+from utils.triton_compiler import compile_triton
 
 CFG = yaml.safe_load(open("config.yml"))
 

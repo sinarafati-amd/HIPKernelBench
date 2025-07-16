@@ -112,7 +112,7 @@ class RAGResearcher(BaseAgent):
         cand_vecs = self._doc_vecs[list(cand_idx)]
         cand_txts = [self.texts[i] for i in cand_idx]
 
-        # ↳ diversity with MMR
+        # diversity with MMR
         λ = _RAG["mmr_lambda"]
         sel_local = _mmr(q, cand_vecs, k=_TOP_K, λ=λ)
         hits = [cand_txts[i] for i in sel_local]

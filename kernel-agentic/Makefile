@@ -27,7 +27,7 @@ run:
 		base=$${file##*/}; \
 		echo "Running $$file"; \
 		name=$${base%.py}; \
-		python -m src.agents.orchestrator --torch-file $$file; \
+		python -m src.agents.orchestrator --mode pytorch2kernel --torch-file $$file; \
 		mkdir -p logs/$$name; \
 		mv logs/generation_history.jsonl logs/$$name/; \
 	done
@@ -54,10 +54,24 @@ optimize-kernels:
 	fi
 
 train-lora:
-	python -m src.training.lora_finetune --logfile logs/combined_SFT_generation_history.jsonl
+	@if [ -z "$(LOGFILE)" ]; then \
+		echo "Using default logfile: logs/combined_SFT_generation_history.jsonl"; \
+		LOGFILE="logs/combined_SFT_generation_history.jsonl"; \
+	fi; \
+	python -m src.training.lora_finetune \
+		--logfile "$(LOGFILE)" \
+		$(if $(EVAL_FILE),--eval-file "$(EVAL_FILE)") \
+		$(if $(EXPERIMENT_NAME),--experiment-name "$(EXPERIMENT_NAME)") \
+		$(if $(RUN_LABEL),--run-label "$(RUN_LABEL)")
 
 combine-history:
-	python src/utils/combine_generation_histories.py --folder_path logs
+	@if [ -z "$(FOLDER_PATH)" ]; then \
+		echo "Using default folder path: logs"; \
+		python src/utils/combine_generation_histories.py --folder_path logs; \
+	else \
+		echo "Using folder path: $(FOLDER_PATH)"; \
+		python src/utils/combine_generation_histories.py --folder_path $(FOLDER_PATH); \
+	fi
 	
 baseline-time:
 	python scripts/generate_baseline_time.py TORCH_FILE=$(TORCH_FILE)
