@@ -1,7 +1,14 @@
 import subprocess, yaml, tempfile, os, textwrap
-from ..utils.kernel_compiler import compile_kernel
-from ..utils.rocprof_parser import profile
-from ..utils.logger import log
+import os 
+import sys 
+from pathlib import Path
+dir_path=str(Path(os.path.dirname(Path(__file__))).parent)
+if dir_path not in sys.path:
+    sys.path.append(dir_path)
+
+from utils.kernel_compiler import compile_kernel
+from utils.rocprof_parser import profile
+from utils.logger import log
 from typing import Optional, Tuple, Dict
 
 
@@ -16,7 +23,6 @@ class Executor:
         self.kernel_lang = kernel_lang.lower()
     
     def run(self, kernel_code: str) -> Tuple[Optional[Dict], Optional[str]]:
-        
         bin_path, stdout, stderr, kernel_file = compile_kernel(kernel_code, self.kernel_lang)
         # if there was a compilation/runtime error, return no stats and the stderr
         if stderr:

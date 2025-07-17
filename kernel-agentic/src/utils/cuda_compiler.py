@@ -1,6 +1,13 @@
 import subprocess, tempfile, os, uuid, textwrap, yaml, json
-from .logger import log
-from ..utils.error_digester import digest
+import os 
+import sys 
+from pathlib import Path
+dir_path=str(Path(os.path.dirname(Path(__file__))).parent)
+if dir_path not in sys.path:
+    sys.path.append(dir_path)
+
+from utils.logger import log
+from utils.error_digester import digest
 
 CFG = yaml.safe_load(open("config.yml"))
 

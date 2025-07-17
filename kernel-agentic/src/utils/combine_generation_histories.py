@@ -30,7 +30,7 @@ def combine_generation_histories(base_path, val_ratio, seed):
                 all_entries.append(entry)
 
                 ev = entry.get("event", "")
-                if ev in ("sft_sample_phase1", "sft_sample_hpo"):
+                if ev in ("sft_sample_phase1", "sft_sample_hpo","sft_sample_optimization_phase1","sft_sample_optimization_hpo"):
                     hip_us = entry.get("hip_us")
                     if hip_us is not None and (best_entry is None or hip_us < best_hip_us):
                         best_entry = entry

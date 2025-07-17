@@ -7,6 +7,7 @@ Pipeline:
   omnivise: true
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
+  mode: kernel2kernel  # Options: pytorch2kernel, kernel2kernel
   search:
     enabled: true
     method: genetic         # bayes | genetic
@@ -14,7 +15,6 @@ Pipeline:
     max_trials: 12        # for Bayesian
     pop: 16               # for GA
     ngen: 20
-
 
 openai:
   base_url: https://llm-api.amd.com
@@ -38,10 +38,11 @@ openai:
       api_version: 2024-12-01-preview
       model_name: o3
       temperature: 0.3
+
 gpu_specs:
   arch: null
   wavefront: null
-  cu_count: null
+  cucount: null
   shared_mem: null
 
 eval:
@@ -84,7 +85,7 @@ rag:
   top_k: 3
   mmr_lambda: 0.6                 # 1.0 = only relevance, 0.0 = only diversity
 
-  
+
 logging:
   history_file: logs/generation_history.jsonl
   log_level: INFO
@@ -95,7 +96,9 @@ training:
     r: 16
     alpha: 32
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
-    epochs: 600
+    epochs: 20
+    huggingface_read: <HF_token>
+  
   grpo:         
     base_model: Qwen/Qwen2-0.5B-Instruct
     num_steps: 800       

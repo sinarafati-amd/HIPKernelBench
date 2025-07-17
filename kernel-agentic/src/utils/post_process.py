@@ -44,11 +44,11 @@ def extract_date_from_folder(folder_name: str) -> str:
     """Extract date from folder name using various patterns."""
     # Try different patterns
     patterns = [
-        r'logs-level\d+-v(\d+)',  # logs-level1-v1 -> v1
-        r'logs-(\d{4}-\d{2}-\d{2})',  # logs-2025-01-15
-        r'logs-(\d{8})',  # logs-20250115
-        r'(\d{4}-\d{2}-\d{2})',  # 2025-01-15
-        r'(\d{8})',  # 20250115
+        r'logs-level\d+-v(\d+)',  
+        r'logs-(\d{4}-\d{2}-\d{2})',  
+        r'logs-(\d{8})',  
+        r'(\d{4}-\d{2}-\d{2})',  
+        r'(\d{8})',  
     ]
     
     for pattern in patterns:
@@ -105,12 +105,34 @@ def copy_plots_to_reports(run_name: str, input_folder: str, main_folder: str, co
     # Create reports directory structure
     os.makedirs(run_reports_folder, exist_ok=True)
     
-    plot_files = [
-        'average_baseline_barplot_grouped_log.png',
-        'baseline_density_cleaned.png'
-    ]
-    
+    # Initialize copied_paths at the beginning
     copied_paths = {}
+    
+    # Detect mode to determine which plots to copy
+    run_mode = detect_run_mode(input_folder)
+    
+    if run_mode == 'kernel2kernel':
+        # Copy kernel optimization plots
+        plot_files = [
+            'kernel_optimization_speedup_distribution.png',
+            'kernel_optimization_comparison.png', 
+            'kernel_optimization_summary.png'
+        ]
+        
+        # Copy kernel optimization report
+        report_file = 'kernel_optimization_report.md'
+        src_report = os.path.join(input_folder, report_file)
+        if os.path.exists(src_report):
+            dst_report = os.path.join(run_reports_folder, report_file)
+            shutil.copy2(src_report, dst_report)
+            copied_paths[report_file] = dst_report
+            print(f"📋 Copied {report_file} to reports folder")
+    else:
+        # Copy pytorch2kernel plots
+        plot_files = [
+            'average_baseline_barplot_grouped_log.png',
+            'baseline_density_cleaned.png'
+        ]
     
     # Copy plot files
     for plot_file in plot_files:
@@ -516,15 +538,20 @@ def append_to_evalboard(evalboard_path: str, run_name: str, new_entry: Dict[str,
         regenerate_evalboard(evalboard_path, sorted_entries)
 
 def update_evalboard(run_name: str, config: Dict[str, Any], stats: Dict[str, float], 
-                      input_folder: str, main_folder: str) -> None:
+                      input_folder: str, main_folder: str, mode: str = 'pytorch2kernel') -> None:
     """Update the evalboard markdown file by appending new entries instead of overwriting."""
     evalboard_path = os.path.join(main_folder, "evalboard.md")
     
     # Copy plots to reports folder (with language filtering)
     copied_plots = copy_plots_to_reports(run_name, input_folder, main_folder, config)
     
-    # Use the copied plot path for evalboard
-    plot_path = copied_plots.get('average_baseline_barplot_grouped_log.png', '')
+    # Use the appropriate plot path based on mode
+    if mode == 'kernel2kernel':
+        plot_path = copied_plots.get('kernel_optimization_summary.png', 
+                                   copied_plots.get('kernel_optimization_comparison.png', 
+                                   copied_plots.get('kernel_optimization_speedup_distribution.png', '')))
+    else:
+        plot_path = copied_plots.get('average_baseline_barplot_grouped_log.png', '')
     
     # Check if evalboard exists, if not create it
     if not os.path.exists(evalboard_path):
@@ -540,18 +567,18 @@ def update_evalboard(run_name: str, config: Dict[str, Any], stats: Dict[str, flo
     # Reconstruct missing data for existing entries (plot paths, configs, etc.)
     _reconstruct_missing_entry_data(entries, main_folder)
     
-    # Create new entry
-    new_entry = create_entry(run_name, config, stats, plot_path, copied_plots)
+    # Create new entry with mode information
+    new_entry = create_entry(run_name, config, stats, plot_path, copied_plots, mode)
     
     # Add or update entry (this will preserve existing entries and add/update the new one)
-    if run_name and run_name.strip():  # Ensure run_name is not empty
+    if run_name and run_name.strip() and run_name.strip().lower() != 'logs':  # Ensure run_name is not empty or just "logs"
         entries[run_name] = new_entry
     else:
-        print(f"⚠️  Skipping entry with empty run name")
+        print(f"⚠️  Skipping entry with invalid run name: '{run_name}'")
         return
     
-    # Filter out any entries with empty run names that might have been parsed incorrectly
-    entries = {k: v for k, v in entries.items() if k and k.strip()}
+    # Filter out any entries with empty run names or "logs" that might have been parsed incorrectly
+    entries = {k: v for k, v in entries.items() if k and k.strip() and k.strip().lower() != 'logs'}
     
     # Sort entries by overall speedup (descending)
     sorted_entries = sorted(entries.items(), key=lambda x: x[1]['overall_speedup'], reverse=True)
@@ -570,8 +597,12 @@ Welcome to the HIP Kernel Benchmark Leaderboard! This page tracks the performanc
 
 ## 📊 Rankings
 
-| Rank | Run Name | Date/Version | Overall Speedup | Success Rate (%) | Avg Torch Time (μs) | Avg HIP Time (μs) | Total Kernels | Configuration |
-|------|----------|--------------|-----------------|------------------|-------------------|----------------|---------------|---------------|
+**Mode Legend:**
+- **P2K**: PyTorch-to-Kernel generation
+- **K2K**: Kernel-to-Kernel optimization
+
+| Rank | Run Name | Date/Version | Mode | Overall Speedup | Success Rate (%) | Avg Torch Time (μs) | Avg HIP Time (μs) | Total Kernels | Configuration |
+|------|----------|--------------|------|-----------------|------------------|-------------------|----------------|---------------|---------------|
 """
     
     with open(evalboard_path, 'w') as f:
@@ -583,6 +614,9 @@ def parse_existing_entries(content: str) -> Dict[str, Dict[str, Any]]:
     entries = {}
     lines = content.split('\n')
     
+    # Detect if this is the new format with Mode column
+    has_mode_column = any('Mode' in line and 'Rank' in line for line in lines)
+    
     # First pass: Parse table data
     in_table = False
     for line in lines:
@@ -593,27 +627,59 @@ def parse_existing_entries(content: str) -> Dict[str, Dict[str, Any]]:
             continue
         elif in_table and line.startswith('|'):
             parts = [p.strip() for p in line.split('|')[1:-1]]  # Remove empty first/last elements
-            if len(parts) >= 8 and parts[1]:  # Ensure run_name (parts[1]) is not empty
+            
+            # Adjust for new format with Mode column
+            min_parts = 9 if has_mode_column else 8
+            run_name_idx = 1
+            date_idx = 2
+            mode_idx = 3 if has_mode_column else None
+            speedup_idx = 4 if has_mode_column else 3
+            success_idx = 5 if has_mode_column else 4
+            torch_time_idx = 6 if has_mode_column else 5
+            hip_time_idx = 7 if has_mode_column else 6
+            kernels_idx = 8 if has_mode_column else 7
+            config_idx = 9 if has_mode_column else 8
+            
+            if len(parts) >= min_parts and parts[run_name_idx]:  # Ensure run_name is not empty
                 try:
-                    run_name = parts[1]
+                    run_name = parts[run_name_idx]
                     # Skip if run_name is empty or just whitespace
                     if not run_name.strip():
                         continue
                         
                     # Remove "x" suffix from speedup if present
-                    speedup_str = parts[3].replace('x', '') if parts[3].endswith('x') else parts[3]
+                    speedup_str = parts[speedup_idx].replace('x', '') if parts[speedup_idx].endswith('x') else parts[speedup_idx]
                     # Remove "%" suffix from success rate if present
-                    success_rate_str = parts[4].replace('%', '') if parts[4].endswith('%') else parts[4]
+                    success_rate_str = parts[success_idx].replace('%', '') if parts[success_idx].endswith('%') else parts[success_idx]
                     
-                    entries[run_name] = {
-                        'date_version': parts[2],
-                        'overall_speedup': float(speedup_str),
-                        'success_rate': float(success_rate_str),
-                        'avg_torch_time': float(parts[5]),
-                        'avg_hip_time': float(parts[6]),
-                        'total_kernels': int(parts[7]),
-                        'configuration': parts[8] if len(parts) > 8 else ""
+                    # Safely convert numeric values
+                    try:
+                        overall_speedup = float(speedup_str) if speedup_str and speedup_str.strip() else 0.0
+                        success_rate = float(success_rate_str) if success_rate_str and success_rate_str.strip() else 0.0
+                        avg_torch_time = float(parts[torch_time_idx]) if parts[torch_time_idx] and parts[torch_time_idx].strip() else 0.0
+                        avg_hip_time = float(parts[hip_time_idx]) if parts[hip_time_idx] and parts[hip_time_idx].strip() else 0.0
+                        total_kernels = int(parts[kernels_idx]) if parts[kernels_idx] and parts[kernels_idx].strip() else 0
+                    except ValueError as ve:
+                        print(f"⚠️  Error parsing numeric values in row: {parts} - {ve}")
+                        continue
+                    
+                    entry = {
+                        'date_version': parts[date_idx],
+                        'overall_speedup': overall_speedup,
+                        'success_rate': success_rate,
+                        'avg_torch_time': avg_torch_time,
+                        'avg_hip_time': avg_hip_time,
+                        'total_kernels': total_kernels,
+                        'configuration': parts[config_idx] if len(parts) > config_idx else ""
                     }
+                    
+                    # Add mode if available
+                    if has_mode_column and mode_idx and len(parts) > mode_idx:
+                        mode_str = parts[mode_idx]
+                        entry['mode'] = 'kernel2kernel' if mode_str == 'K2K' else 'pytorch2kernel'
+                    
+                    entries[run_name] = entry
+                    
                 except (ValueError, IndexError) as e:
                     print(f"⚠️  Skipping malformed table row: {line.strip()} - Error: {e}")
                     continue
@@ -731,12 +797,12 @@ def _parse_detailed_configurations(content: str, entries: Dict[str, Dict[str, An
 
 
 def create_entry(run_name: str, config: Dict[str, Any], stats: Dict[str, float], 
-                plot_path: str, copied_plots: Dict[str, str] = None) -> Dict[str, Any]:
+                plot_path: str, copied_plots: Dict[str, str] = None, mode: str = 'pytorch2kernel') -> Dict[str, Any]:
     """Create a new evalboard entry."""
     date_version = extract_date_from_folder(run_name)
     
     # Extract detailed configuration information
-    config_details = extract_detailed_config(config)
+    config_details = extract_detailed_config(config, mode)
     
     entry = {
         'date_version': date_version,
@@ -747,26 +813,34 @@ def create_entry(run_name: str, config: Dict[str, Any], stats: Dict[str, float],
         'total_kernels': stats['total_kernels'],
         'configuration': config_details['summary'],
         'detailed_config': config_details,
-        'plot_path': plot_path
+        'plot_path': plot_path,
+        'mode': mode
     }
     
     # Add additional plot paths if available
     if copied_plots:
         entry['density_plot_path'] = copied_plots.get('baseline_density_cleaned.png', '')
+        # Add optimization-specific plots for kernel2kernel mode
+        if mode == 'kernel2kernel':
+            entry['speedup_plot_path'] = copied_plots.get('kernel_optimization_speedup_distribution.png', '')
+            entry['comparison_plot_path'] = copied_plots.get('kernel_optimization_comparison.png', '')
         # Add prompts information if available
         if 'prompts' in copied_plots:
             entry['prompts'] = copied_plots['prompts']
+        # Store all copied files for access to reports
+        entry['copied_files'] = copied_plots
     
     return entry
 
 
-def extract_detailed_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def extract_detailed_config(config: Dict[str, Any], mode: str = 'pytorch2kernel') -> Dict[str, Any]:
     """Extract detailed configuration information for the leaderboard."""
     details = {
         'pipeline': {},
         'models': {},
         'search': {},
-        'summary': ""
+        'summary': "",
+        'mode': mode
     }
     
     # Extract Pipeline configuration
@@ -774,6 +848,7 @@ def extract_detailed_config(config: Dict[str, Any]) -> Dict[str, Any]:
         pipeline = config['Pipeline']
         details['pipeline'] = {
             'kernel_lang': pipeline.get('kernel_lang', 'unknown'),
+            'mode': pipeline.get('mode', mode),
             'rag_enabled': pipeline.get('rag_enabled', False),
             'online_search': pipeline.get('online_search', False),
             'cheat_sheet': pipeline.get('cheat_sheet', False),
@@ -811,6 +886,12 @@ def extract_detailed_config(config: Dict[str, Any]) -> Dict[str, Any]:
     
     # Create summary for table display
     summary_parts = []
+    # Add mode indicator
+    if mode == 'kernel2kernel':
+        summary_parts.append("Mode: K2K")
+    else:
+        summary_parts.append("Mode: P2K")
+    
     if details['pipeline'].get('kernel_lang'):
         summary_parts.append(f"Lang: {details['pipeline']['kernel_lang']}")
     if details['search'].get('method'):
@@ -833,14 +914,19 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 ## 📊 Rankings
 
-| Rank | Run Name | Date/Version | Overall Speedup | Success Rate (%) | Avg Torch Time (μs) | Avg HIP Time (μs) | Total Kernels | Configuration |
-|------|----------|--------------|-----------------|------------------|-------------------|----------------|---------------|---------------|
+**Mode Legend:**
+- **P2K**: PyTorch-to-Kernel generation
+- **K2K**: Kernel-to-Kernel optimization
+
+| Rank | Run Name | Date/Version | Mode | Overall Speedup | Success Rate (%) | Avg Torch Time (μs) | Avg HIP Time (μs) | Total Kernels | Configuration |
+|------|----------|--------------|------|-----------------|------------------|-------------------|----------------|---------------|---------------|
 """
     
     for rank, (run_name, entry) in enumerate(sorted_entries, 1):
         # Only add entries with valid run names
         if run_name and run_name.strip():
-            content += f"| {rank}| {run_name} | {entry['date_version']} | {entry['overall_speedup']:.2f}x | {entry['success_rate']:.1f}% | {entry['avg_torch_time']:.1f} | {entry['avg_hip_time']:.1f} | {entry['total_kernels']} | {entry['configuration']} |\n"
+            mode_display = "K2K" if entry.get('mode') == 'kernel2kernel' else "P2K"
+            content += f"| {rank}| {run_name} | {entry['date_version']} | {mode_display} | {entry['overall_speedup']:.2f}x | {entry['success_rate']:.1f}% | {entry['avg_torch_time']:.1f} | {entry['avg_hip_time']:.1f} | {entry['total_kernels']} | {entry['configuration']} |\n"
     
     content += "\n## 📈 Performance Charts\n\n"
     
@@ -851,14 +937,34 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
             relative_plot_path = os.path.relpath(entry['plot_path'], os.path.dirname(evalboard_path))
             relative_plot_path=relative_plot_path.replace('kernel-agentic/', '')
             content += f"### {run_name}\n\n"
-            content += f"#### Average Performance by Group\n"
-            content += f"![{run_name} Performance Chart]({relative_plot_path})\n\n"
             
-            # Add density plot if available
-            if 'density_plot_path' in entry and entry['density_plot_path']:
-                relative_density_path = os.path.relpath(entry['density_plot_path'], os.path.dirname(evalboard_path))
-                content += f"#### Performance Distribution\n"
-                content += f"![{run_name} Density Plot]({relative_density_path})\n\n"
+            # Different content based on mode
+            if entry.get('mode') == 'kernel2kernel':
+                content += f"#### Kernel Optimization Results\n"
+                content += f"![{run_name} Optimization Chart]({relative_plot_path})\n\n"
+                
+                # Add additional optimization plots if available
+                if 'speedup_plot_path' in entry and entry['speedup_plot_path']:
+                    relative_speedup_path = os.path.relpath(entry['speedup_plot_path'], os.path.dirname(evalboard_path))
+                    relative_speedup_path = relative_speedup_path.replace('kernel-agentic/', '')
+                    content += f"#### Speedup Distribution\n"
+                    content += f"![{run_name} Speedup Distribution]({relative_speedup_path})\n\n"
+                    
+                if 'comparison_plot_path' in entry and entry['comparison_plot_path']:
+                    relative_comparison_path = os.path.relpath(entry['comparison_plot_path'], os.path.dirname(evalboard_path))
+                    relative_comparison_path = relative_comparison_path.replace('kernel-agentic/', '')
+                    content += f"#### Performance Comparison\n"
+                    content += f"![{run_name} Performance Comparison]({relative_comparison_path})\n\n"
+            else:
+                content += f"#### Average Performance by Group\n"
+                content += f"![{run_name} Performance Chart]({relative_plot_path})\n\n"
+                
+                # Add density plot if available
+                if 'density_plot_path' in entry and entry['density_plot_path']:
+                    relative_density_path = os.path.relpath(entry['density_plot_path'], os.path.dirname(evalboard_path))
+                    relative_density_path = relative_density_path.replace('kernel-agentic/', '')
+                    content += f"#### Performance Distribution\n"
+                    content += f"![{run_name} Density Plot]({relative_density_path})\n\n"
             
             chart_count += 1
     
@@ -866,6 +972,36 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
         content += "*No performance charts available yet.*\n\n"
     else:
         content += f"*Showing {chart_count} performance chart(s)*\n\n"
+    
+    # Add kernel optimization reports section for K2K runs
+    content += "\n## 📋 Kernel Optimization Reports\n\n"
+    
+    optimization_reports = 0
+    for run_name, entry in sorted_entries:
+        if (run_name and run_name.strip() and 
+            entry.get('mode') == 'kernel2kernel' and 
+            'kernel_optimization_report.md' in entry.get('copied_files', {})):
+            
+            # Read and embed the optimization report content
+            report_path = entry['copied_files']['kernel_optimization_report.md']
+            if os.path.exists(report_path):
+                try:
+                    with open(report_path, 'r') as f:
+                        report_content = f.read()
+                    
+                    # Add a subsection for this run's optimization report
+                    content += f"### {run_name} - Kernel Optimization Analysis\n\n"
+                    content += report_content + "\n\n"
+                    optimization_reports += 1
+                    
+                except Exception as e:
+                    print(f"⚠️  Error reading optimization report for {run_name}: {e}")
+                    content += f"### {run_name}\n\n*Error loading optimization report*\n\n"
+    
+    if optimization_reports == 0:
+        content += "*No kernel optimization reports available yet.*\n\n"
+    else:
+        content += f"*Showing {optimization_reports} optimization report(s)*\n\n"
             
     
     # Add detailed configuration section
@@ -973,13 +1109,17 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
         }
     
     total_kernels = len(list_baselines_flat)
-    successful_kernels = len([t for t in list_best_flat if t > 0])
+    successful_kernels = len([t for t in list_best_flat if t is not None and t > 0])
     success_rate = (successful_kernels / total_kernels) * 100 if total_kernels > 0 else 0
     
     # Calculate harmonic mean speedup (only for successful kernels)
     valid_speedups = []
     for i in range(len(list_baselines_flat)):
-        if i < len(list_best_flat) and list_best_flat[i] > 0:
+        if (i < len(list_best_flat) and 
+            list_best_flat[i] is not None and 
+            list_best_flat[i] > 0 and
+            list_baselines_flat[i] is not None and
+            list_baselines_flat[i] > 0):
             speedup = list_baselines_flat[i] / list_best_flat[i]
             valid_speedups.append(speedup)
     
@@ -989,8 +1129,12 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
     else:
         harmonic_mean_speedup = 0.0
     
-    avg_torch_time = np.mean(list_baselines_flat) if list_baselines_flat else 0.0
-    avg_hip_time = np.mean(list_best_flat) if list_best_flat else 0.0
+    # Filter out None values for average calculations
+    valid_baselines = [t for t in list_baselines_flat if t is not None]
+    valid_best_times = [t for t in list_best_flat if t is not None]
+    
+    avg_torch_time = np.mean(valid_baselines) if valid_baselines else 0.0
+    avg_hip_time = np.mean(valid_best_times) if valid_best_times else 0.0
     
     return {
         'total_kernels': total_kernels,
@@ -1003,6 +1147,21 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
 
 
 def main(input, grouping_file=None, level='level_1'):
+    # Detect run mode first
+    run_mode = detect_run_mode(input)
+    print(f"🔍 Detected run mode: {run_mode}")
+    
+    if run_mode == 'kernel2kernel':
+        # Process kernel optimization results
+        print("📊 Processing kernel2kernel optimization results...")
+        return process_kernel_optimization_mode(input, grouping_file, level)
+    else:
+        # Process pytorch2kernel results (existing logic)
+        print("📊 Processing pytorch2kernel generation results...")
+        return process_pytorch2kernel_mode(input, grouping_file, level)
+
+def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
+    """Process traditional PyTorch to kernel generation results."""
     # Load grouping configuration from specified file or default location
     if grouping_file and os.path.isabs(grouping_file):
         # If absolute path is provided, use it directly
@@ -1147,7 +1306,7 @@ def main(input, grouping_file=None, level='level_1'):
     run_name = os.path.basename(input)
     
     # Update evalboard (this will copy plots to reports folder)
-    update_evalboard(run_name, config, stats, input, main_folder)
+    update_evalboard(run_name, config, stats, input, main_folder, mode='pytorch2kernel')
     
     print(f"\n   Run Summary for {run_name}:")
     print(f"   Total Kernels: {stats['total_kernels']}")
@@ -1425,28 +1584,538 @@ def _parse_config_string(config_str: str) -> Dict[str, Any]:
     
     return config
 
+def detect_run_mode(input_folder: str) -> str:
+    """
+    Detect whether the logs are from pytorch2kernel or kernel2kernel mode.
+    
+    Returns:
+        'pytorch2kernel' for normal PyTorch to kernel generation
+        'kernel2kernel' for kernel optimization runs
+        'mixed' for mixed content
+    """
+    folders = [f for f in os.listdir(input_folder) if os.path.isdir(os.path.join(input_folder, f))]
+    
+    pytorch2kernel_count = 0
+    kernel2kernel_count = 0
+    
+    for folder in folders:
+        # Check for kernel optimization pattern (ends with _opt)
+        if folder.endswith('_opt'):
+            kernel2kernel_count += 1
+        else:
+            # Check for PyTorch pattern (has baseline_ files)
+            folder_path = os.path.join(input_folder, folder)
+            if os.path.isdir(folder_path):
+                files = os.listdir(folder_path)
+                if any(f.startswith('baseline_') for f in files):
+                    pytorch2kernel_count += 1
+    
+    if kernel2kernel_count > pytorch2kernel_count:
+        return 'kernel2kernel'
+    elif pytorch2kernel_count > 0:
+        return 'pytorch2kernel'
+    else:
+        return 'mixed'
+
+def process_kernel_optimization_results(input_folder: str, grouping_config: Dict = None) -> Dict[str, Any]:
+    """
+    Process kernel2kernel optimization results and generate statistics.
+    
+    Returns a dictionary with processed data for visualization.
+    """
+    folders = [f for f in os.listdir(input_folder) if os.path.isdir(os.path.join(input_folder, f)) and f.endswith('_opt')]
+    
+    results = {
+        'optimization_results': [],
+        'summary_stats': {},
+        'speedup_improvements': [],
+        'optimization_events': []
+    }
+    
+    total_kernels = 0
+    successful_optimizations = 0
+    total_baseline_time = 0
+    total_optimized_time = 0
+    speedup_ratios = []
+    
+    for folder in folders:
+        folder_path = os.path.join(input_folder, folder)
+        
+        # Extract kernel name (remove _opt suffix)
+        kernel_name = folder.replace('_opt', '')
+        
+        # Look for the best optimized kernel JSON file
+        json_files = [f for f in os.listdir(folder_path) if f.endswith('_optimized.json')]
+        
+        if not json_files:
+            print(f"⚠️  No optimization results found in {folder}")
+            continue
+            
+        json_file = json_files[0]
+        json_path = os.path.join(folder_path, json_file)
+        
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+            
+            baseline_us = data.get('baseline_us', 0) or 0
+            speedup = data.get('speedup', 0) or 0
+            stats = data.get('stats', {})
+            optimized_us = stats.get('avg_us', 0) or 0
+            
+            # Ensure all values are numeric
+            baseline_us = float(baseline_us) if baseline_us is not None else 0.0
+            speedup = float(speedup) if speedup is not None else 0.0
+            optimized_us = float(optimized_us) if optimized_us is not None else 0.0
+            
+            result = {
+                'kernel_name': kernel_name,
+                'baseline_us': baseline_us,
+                'optimized_us': optimized_us,
+                'speedup': speedup,
+                'optimization_params': data.get('params', {}),
+                'stats': stats,
+                'folder': folder
+            }
+            
+            results['optimization_results'].append(result)
+            
+            total_kernels += 1
+            if speedup > 1.0:
+                successful_optimizations += 1
+                speedup_ratios.append(speedup)
+            
+            total_baseline_time += baseline_us
+            total_optimized_time += optimized_us
+            
+            # Process generation history for detailed optimization events
+            jsonl_path = os.path.join(folder_path, 'generation_history.jsonl')
+            if os.path.exists(jsonl_path):
+                optimization_events = extract_optimization_events(jsonl_path, kernel_name)
+                results['optimization_events'].extend(optimization_events)
+                
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"⚠️  Error processing {json_file}: {e}")
+            continue
+    
+    # Calculate summary statistics
+    results['summary_stats'] = {
+        'total_kernels': total_kernels,
+        'successful_optimizations': successful_optimizations,
+        'success_rate': (successful_optimizations / total_kernels * 100) if total_kernels > 0 else 0,
+        'average_speedup': np.mean(speedup_ratios) if speedup_ratios else 0,
+        'median_speedup': np.median(speedup_ratios) if speedup_ratios else 0,
+        'max_speedup': max(speedup_ratios) if speedup_ratios else 0,
+        'total_baseline_time': total_baseline_time,
+        'total_optimized_time': total_optimized_time,
+        'overall_speedup': (total_baseline_time / total_optimized_time) if total_optimized_time > 0 else 0
+    }
+    
+    return results
+
+def extract_optimization_events(jsonl_path: str, kernel_name: str) -> List[Dict[str, Any]]:
+    """Extract optimization-specific events from generation history."""
+    events = []
+    
+    try:
+        with open(jsonl_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                try:
+                    entry = json.loads(line)
+                    event_type = entry.get("event", "")
+                    
+                    # Track optimization-specific events
+                    if event_type in [
+                        "optimization_iteration_start",
+                        "optimization_iteration_complete", 
+                        "optimization_iteration_failed",
+                        "sft_sample_optimization_phase1",
+                        "sft_sample_optimization_hpo",
+                        "early_stop_hpo",
+                        "hpo_step",
+                        "best_optimized_kernel_saved"
+                    ]:
+                        event_data = {
+                            'kernel_name': kernel_name,
+                            'event_type': event_type,
+                            'timestamp': entry.get('ts', ''),
+                            'iteration': entry.get('iter', 0),
+                            'speedup': entry.get('speedup', 0),
+                            'hip_us': entry.get('hip_us', 0),
+                            'correct': entry.get('correct', True),
+                            'params': entry.get('params', {}),
+                            'reason': entry.get('reason', '')
+                        }
+                        events.append(event_data)
+                        
+                except json.JSONDecodeError:
+                    continue
+                    
+    except FileNotFoundError:
+        print(f"⚠️  Generation history not found: {jsonl_path}")
+        
+    return events
+
+def generate_kernel_optimization_plots(results: Dict[str, Any], input_folder: str) -> Dict[str, str]:
+    """Generate visualization plots for kernel optimization results."""
+    plot_paths = {}
+    
+    optimization_results = results['optimization_results']
+    summary_stats = results['summary_stats']
+    
+    if not optimization_results:
+        print("⚠️  No optimization results to plot")
+        return plot_paths
+    
+    # Set style
+    plt.style.use('default')
+    sns.set_palette("husl")
+    
+    # 1. Speedup Distribution Plot
+    speedups = [r['speedup'] for r in optimization_results if r['speedup'] > 0]
+
+    if speedups:
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        # Create histogram
+        n, bins, patches = ax.hist(speedups, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+        
+        # Color bars based on speedup value
+        for i, (patch, speed) in enumerate(zip(patches, bins[:-1])):
+            if speed >= 2.0:
+                patch.set_facecolor('green')
+            elif speed >= 1.5:
+                patch.set_facecolor('orange')
+            elif speed >= 1.0:
+                patch.set_facecolor('yellow')
+
+            else:
+                patch.set_facecolor('red')
+        
+        ax.axvline(x=1.0, color='red', linestyle='--', linewidth=2, label='No Improvement')
+        ax.axvline(x=np.mean(speedups), color='blue', linestyle='-', linewidth=2, 
+                   label=f'Average: {np.mean(speedups):.2f}x')
+        
+        ax.set_xlabel('Speedup Factor', fontsize=14)
+        ax.set_ylabel('Number of Kernels', fontsize=14)
+        ax.set_title('Kernel Optimization Speedup Distribution', fontsize=16, fontweight='bold')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        speedup_plot_path = os.path.join(input_folder, 'kernel_optimization_speedup_distribution.png')
+        plt.savefig(speedup_plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        plot_paths['speedup_distribution'] = speedup_plot_path
+        print(f"📊 Generated speedup distribution plot: {speedup_plot_path}")
+    
+    # 2. Before vs After Performance Comparison
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8))
+    
+    kernel_names = [r['kernel_name'][:20] + '...' if len(r['kernel_name']) > 20 else r['kernel_name'] 
+                    for r in optimization_results]
+    baseline_times = [r['baseline_us'] for r in optimization_results]
+    optimized_times = [r['optimized_us'] for r in optimization_results]
+    
+    x_pos = np.arange(len(kernel_names))
+    
+    # Bar plot comparison
+    width = 0.35
+    ax1.bar(x_pos - width/2, baseline_times, width, label='Original', alpha=0.8, color='red')
+    ax1.bar(x_pos + width/2, optimized_times, width, label='Optimized', alpha=0.8, color='blue')
+    
+    ax1.set_xlabel('Kernels', fontsize=12)
+    ax1.set_ylabel('Execution Time (μs)', fontsize=12)
+    ax1.set_title('Performance Comparison: Original vs Optimized', fontsize=14, fontweight='bold')
+    ax1.set_xticks(x_pos)
+    ax1.set_xticklabels(kernel_names, rotation=45, ha='right')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    
+    # Speedup bar plot
+    speedups = [r['speedup'] for r in optimization_results]
+    colors = ['green' if s >= 1.0 else 'red' for s in speedups]
+    
+    bars = ax2.bar(x_pos, speedups, color=colors, alpha=0.7)
+    ax2.axhline(y=1.0, color='black', linestyle='--', linewidth=1, label='Baseline (1x)')
+    ax2.set_xlabel('Kernels', fontsize=12)
+    ax2.set_ylabel('Speedup Factor', fontsize=12)
+    ax2.set_title('Speedup Factor per Kernel', fontsize=14, fontweight='bold')
+    ax2.set_xticks(x_pos)
+    ax2.set_xticklabels(kernel_names, rotation=45, ha='right')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    
+    # Add value labels on bars
+    for bar, speedup in zip(bars, speedups):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{speedup:.2f}x', ha='center', va='bottom', fontsize=8)
+    
+    plt.tight_layout()
+    comparison_plot_path = os.path.join(input_folder, 'kernel_optimization_comparison.png')
+    plt.savefig(comparison_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plot_paths['performance_comparison'] = comparison_plot_path
+    print(f"📊 Generated performance comparison plot: {comparison_plot_path}")
+    
+    # 3. Optimization Summary Statistics
+    fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+    
+    # Success rate pie chart
+    success_count = summary_stats['successful_optimizations']
+    fail_count = summary_stats['total_kernels'] - success_count
+    
+    if success_count + fail_count > 0:
+        labels = ['Improved', 'No Improvement']
+        sizes = [success_count, fail_count]
+        colors = ['green', 'red']
+        explode = (0.05, 0)
+        
+        ax1.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%',
+               shadow=True, startangle=90)
+        ax1.set_title(f'Optimization Success Rate\n({success_count}/{summary_stats["total_kernels"]} kernels improved)', 
+                     fontweight='bold')
+    
+    # Speedup statistics
+    stats_labels = ['Average', 'Median', 'Maximum']
+    stats_values = [summary_stats['average_speedup'], summary_stats['median_speedup'], summary_stats['max_speedup']]
+    
+    bars = ax2.bar(stats_labels, stats_values, color=['blue', 'orange', 'red'], alpha=0.7)
+    ax2.set_ylabel('Speedup Factor', fontsize=12)
+    ax2.set_title('Speedup Statistics', fontweight='bold')
+    ax2.grid(True, alpha=0.3)
+    
+    for bar, value in zip(bars, stats_values):
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                f'{value:.2f}x', ha='center', va='bottom', fontweight='bold')
+    
+    # Time savings
+    total_baseline = summary_stats['total_baseline_time']
+    total_optimized = summary_stats['total_optimized_time']
+    time_saved = total_baseline - total_optimized
+    
+    time_labels = ['Original Total', 'Optimized Total', 'Time Saved']
+    time_values = [total_baseline/1000, total_optimized/1000, time_saved/1000]  # Convert to ms
+    
+    ax3.bar(time_labels, time_values, color=['red', 'green', 'blue'], alpha=0.7)
+    ax3.set_ylabel('Time (ms)', fontsize=12)
+    ax3.set_title('Total Time Comparison', fontweight='bold')
+    ax3.grid(True, alpha=0.3)
+    
+    # Optimization technique effectiveness (if params available)
+    param_effectiveness = analyze_optimization_parameters(optimization_results)
+    if param_effectiveness:
+        params, avg_speedups = zip(*param_effectiveness.items())
+        ax4.bar(params, avg_speedups, color='purple', alpha=0.7)
+        ax4.set_ylabel('Average Speedup', fontsize=12)
+        ax4.set_title('Optimization Parameter Effectiveness', fontweight='bold')
+        ax4.set_xticklabels(params, rotation=45, ha='right')
+        ax4.grid(True, alpha=0.3)
+    else:
+        ax4.text(0.5, 0.5, 'No parameter data available', ha='center', va='center', 
+                transform=ax4.transAxes, fontsize=14)
+        ax4.set_title('Optimization Parameters', fontweight='bold')
+    
+    plt.tight_layout()
+    summary_plot_path = os.path.join(input_folder, 'kernel_optimization_summary.png')
+    plt.savefig(summary_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    plot_paths['summary_statistics'] = summary_plot_path
+    print(f"📊 Generated summary statistics plot: {summary_plot_path}")
+    
+    return plot_paths
+
+def analyze_optimization_parameters(optimization_results: List[Dict]) -> Dict[str, float]:
+    """Analyze which optimization parameters are most effective."""
+    param_speedups = {}
+    
+    for result in optimization_results:
+        params = result.get('optimization_params', {})
+        speedup = result.get('speedup', 0)
+        
+        if speedup > 0:
+            for param_name, param_value in params.items():
+                param_key = f"{param_name}={param_value}"
+                if param_key not in param_speedups:
+                    param_speedups[param_key] = []
+                param_speedups[param_key].append(speedup)
+    
+    # Calculate average speedup for each parameter combination
+    param_effectiveness = {}
+    for param_key, speedups in param_speedups.items():
+        if len(speedups) >= 2:  # Only include parameters used multiple times
+            param_effectiveness[param_key] = np.mean(speedups)
+    
+    # Sort by effectiveness
+    return dict(sorted(param_effectiveness.items(), key=lambda x: x[1], reverse=True)[:10])
+
+def process_kernel_optimization_mode(input_folder: str, grouping_file=None, level='level_1'):
+    """Process kernel2kernel optimization results and generate reports."""
+    
+    # Process optimization results
+    results = process_kernel_optimization_results(input_folder)
+    
+    if not results['optimization_results']:
+        print("❌ No kernel optimization results found!")
+        return
+    
+    print(f"✅ Processed {len(results['optimization_results'])} kernel optimizations")
+    
+    # Generate plots
+    plot_paths = generate_kernel_optimization_plots(results, input_folder)
+    
+    # Generate markdown report
+    report_path = generate_kernel_optimization_report(results, input_folder, plot_paths)
+    
+    # Update evalboard with optimization results
+    config_path = os.path.join(os.path.dirname(input_folder), "config.yml") 
+    if not os.path.exists(config_path):
+        config_path = "config.yml"
+    config = load_config(config_path)
+    
+    # Create summary stats compatible with evalboard
+    summary_stats = results['summary_stats']
+    evalboard_stats = {
+        'total_kernels': summary_stats['total_kernels'],
+        'successful_kernels': summary_stats['successful_optimizations'], 
+        'avg_torch_time': summary_stats['total_baseline_time'] / summary_stats['total_kernels'] if summary_stats['total_kernels'] > 0 else 0,
+        'avg_hip_time': summary_stats['total_optimized_time'] / summary_stats['total_kernels'] if summary_stats['total_kernels'] > 0 else 0,
+        'overall_speedup': summary_stats['overall_speedup'],
+        'success_rate': summary_stats['success_rate']
+    }
+    
+    # Copy plots to reports directory
+    main_folder = os.path.dirname(os.path.abspath(input_folder))
+    if main_folder.endswith('/kernel-agentic'):
+        main_folder = os.path.dirname(main_folder)
+    
+    # Use folder name or generate run name
+    run_name = os.path.basename(input_folder) or f"kernel_optimization_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    copied_paths = copy_plots_to_reports(run_name, input_folder, main_folder, config)
+    
+    update_evalboard(run_name, config, evalboard_stats, input_folder, main_folder, mode='kernel2kernel')
+    
+    print(f"\n📊 Kernel optimization analysis complete!")
+    print(f"📈 Success rate: {summary_stats['success_rate']:.1f}% ({summary_stats['successful_optimizations']}/{summary_stats['total_kernels']} kernels)")
+    print(f"🚀 Average speedup: {summary_stats['average_speedup']:.2f}x")
+    print(f"🏆 Maximum speedup: {summary_stats['max_speedup']:.2f}x")
+    print(f"📁 Results saved to: {os.path.join(main_folder, 'reports', run_name)}")
+    
+    return results
+
+def generate_kernel_optimization_report(results: Dict[str, Any], input_folder: str, plot_paths: Dict[str, str]) -> str:
+    """Generate a comprehensive markdown report for kernel optimization results."""
+    
+    summary_stats = results['summary_stats']
+    optimization_results = results['optimization_results']
+    
+    # Generate report content
+    report_content = f"""# Kernel Optimization Analysis Report
+
+## 📊 Summary Statistics
+
+- **Total Kernels Analyzed**: {summary_stats['total_kernels']}
+- **Successfully Optimized**: {summary_stats['successful_optimizations']} ({summary_stats['success_rate']:.1f}%)
+- **Average Speedup**: {summary_stats['average_speedup']:.2f}x
+- **Median Speedup**: {summary_stats['median_speedup']:.2f}x
+- **Maximum Speedup**: {summary_stats['max_speedup']:.2f}x
+- **Overall Performance Improvement**: {summary_stats['overall_speedup']:.2f}x
+
+## 📈 Performance Analysis
+
+### Time Comparison
+- **Total Original Time**: {summary_stats['total_baseline_time']:.1f} μs
+- **Total Optimized Time**: {summary_stats['total_optimized_time']:.1f} μs
+- **Time Saved**: {summary_stats['total_baseline_time'] - summary_stats['total_optimized_time']:.1f} μs
+
+## 🎯 Individual Kernel Results
+
+| Kernel Name | Original (μs) | Optimized (μs) | Speedup | Status |
+|-------------|---------------|----------------|---------|---------|
+"""
+    
+    # Add individual results
+    for result in optimization_results:
+        status = "✅ Improved" if result['speedup'] > 1.0 else "❌ No improvement"
+        report_content += f"| {result['kernel_name']} | {result['baseline_us']:.1f} | {result['optimized_us']:.1f} | {result['speedup']:.2f}x | {status} |\n"
+    
+    # Add optimization techniques section if available
+    if optimization_results and any(r.get('optimization_params') for r in optimization_results):
+        report_content += "\n## 🔧 Optimization Techniques Applied\n\n"
+        
+        for result in optimization_results:
+            params = result.get('optimization_params', {})
+            if params:
+                report_content += f"### {result['kernel_name']}\n"
+                report_content += f"- **Speedup achieved**: {result['speedup']:.2f}x\n"
+                report_content += "- **Parameters optimized**:\n"
+                for param, value in params.items():
+                    report_content += f"  - `{param}`: {value}\n"
+                report_content += "\n"
+    
+    # # Add plots section
+    # if plot_paths:
+    #     report_content += "\n## 📊 Visualization Charts\n\n"
+    #     for plot_name, plot_path in plot_paths.items():
+    #         plot_filename = os.path.basename(plot_path)
+    #         report_content += f"### {plot_name.replace('_', ' ').title()}\n"
+    #         report_content += f"![{plot_name}]({plot_filename})\n\n"
+    
+    # Add methodology section
+    report_content += """
+## 🔬 Optimization Methodology
+
+This analysis used the kernel2kernel optimization pipeline, which:
+
+1. **Analyzes existing kernels** to understand their computational patterns and identify bottlenecks
+2. **Applies targeted optimizations** using LLM-guided code improvements
+3. **Iteratively refines** kernels based on profiling feedback
+4. **Performs hyperparameter optimization** to fine-tune kernel parameters
+
+The optimization process focuses on:
+- Memory access pattern improvements
+- Compute utilization optimization  
+- Register usage optimization
+- Shared memory optimization
+- Architecture-specific optimizations
+
+## 📝 Notes
+
+- Speedup is calculated as: `Original Time / Optimized Time`
+- Results include both algorithmic improvements and parameter tuning
+- All timings are in microseconds (μs)
+- Optimizations maintain functional correctness while improving performance
+"""
+    
+    # Generate timestamp
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    report_content += f"\n---\n*Report generated on {timestamp}*\n"
+    
+    # Save report
+    report_path = os.path.join(input_folder, "kernel_optimization_report.md")
+    with open(report_path, 'w') as f:
+        f.write(report_content)
+    
+    print(f"📄 Generated optimization report: {report_path}")
+    return report_path
+
 if __name__ == "__main__":
-    parser = ArgumentParser(description="Post-process the generated kernels and update evalboard.")
-    parser.add_argument("--input", type=str, default='logsv0', help="Path to the input logs folder.")
-    parser.add_argument("--run-name", type=str, help="Custom name for this run (overrides folder name).")
-    parser.add_argument("--grouping", type=str, default='grouping.yml', 
-                       help="Path to the grouping configuration YAML file (default: grouping.yml). "
-                            "Can be absolute path or relative to current working directory.")
-    parser.add_argument("--level", type=str, default='level_1', 
-                       help="Level to use from grouping file (e.g., level_1, level_2, level_3). Default: level_1")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Post-process HIPKernelBench results')
+    parser.add_argument('--input', '-i', required=True, help='Input directory containing results')
+    parser.add_argument('--grouping', '-g', help='Path to grouping.yml file')
+    parser.add_argument('--level', '-l', default='level_1', help='Level to process (default: level_1)')
+    parser.add_argument('--run-name', '-r', help='Custom run name for evalboard')
+    
     args = parser.parse_args()
-
-    print(f"   Starting post-processing with:")
-    print(f"   Input folder: {args.input}")
-    print(f"   Grouping file: {args.grouping}")
-    print(f"   Level: {args.level}")
+    
     if args.run_name:
-        print(f"   Custom run name: {args.run_name}")
-    print()
-
-    # Use custom run name if provided
-    if args.run_name:
-        # Create a temporary input path with custom name for evalboard purposes
+        # Custom run name mode - update evalboard with custom name
+        print(f"🚀 Processing with custom run name: {args.run_name}")
+        
         original_input = args.input
         main(original_input, args.grouping, args.level)
         
@@ -1456,8 +2125,9 @@ if __name__ == "__main__":
             config_path = "config.yml"
         config = load_config(config_path)
         
-
-
+        # Determine mode based on directory structure
+        run_mode = detect_run_mode(original_input)
+        
         list_baselines_flat = []
         list_best_flat = []
         
@@ -1465,47 +2135,69 @@ if __name__ == "__main__":
         for folder in os.listdir(original_input):
             if not os.path.isdir(os.path.join(original_input, folder)):
                 continue
-                
-            baseline_files = [f for f in os.listdir(os.path.join(original_input, folder)) if f.startswith("baseline") and f.endswith('.json')]
-            if not baseline_files:
-                continue
-                
-            with open(os.path.join(original_input, folder, baseline_files[0]), 'r') as f:
-                data = json.load(f)
-            baseline_time = data['lat_us']
-            list_baselines_flat.append(baseline_time)
             
-            jsonl_path = os.path.join(original_input, folder, "generation_history.jsonl")
-            best_hip_time = baseline_time  # Default to baseline
-            
-            if os.path.isfile(jsonl_path):
-                smallest_hip_us = None
-                with open(jsonl_path, 'r', encoding='utf-8') as f:
-                    for line in f:
+            if run_mode == 'kernel2kernel':
+                # For kernel optimization, look for optimized.json files
+                if folder.endswith('_opt'):
+                    json_files = [f for f in os.listdir(os.path.join(original_input, folder)) if f.endswith('_optimized.json')]
+                    if json_files:
+                        json_path = os.path.join(original_input, folder, json_files[0])
                         try:
-                            entry = json.loads(line)
-                            event = entry.get("event", "")
-                            if event in ["sft_sample_phase1", "sft_sample_hpo"]:
-                                current_hip_us = entry.get("hip_us")
-                                if current_hip_us is not None:
-                                    if smallest_hip_us is None or current_hip_us < smallest_hip_us:
-                                        smallest_hip_us = current_hip_us
-                        except json.JSONDecodeError:
+                            with open(json_path, 'r') as f:
+                                data = json.load(f)
+                            baseline_time = data.get('baseline_us', 0) or 0
+                            optimized_time = data.get('stats', {}).get('avg_us', baseline_time) or baseline_time
+                            
+                            # Ensure values are numeric
+                            baseline_time = float(baseline_time) if baseline_time is not None else 0.0
+                            optimized_time = float(optimized_time) if optimized_time is not None else baseline_time
+                            
+                            list_baselines_flat.append(baseline_time)
+                            list_best_flat.append(optimized_time)
+                        except (json.JSONDecodeError, FileNotFoundError):
                             continue
-                
-                if smallest_hip_us is not None:
-                    best_hip_time = smallest_hip_us
+            else:
+                # For pytorch2kernel, look for baseline files
+                baseline_files = [f for f in os.listdir(os.path.join(original_input, folder)) if f.startswith("baseline") and f.endswith('.json')]
+                if not baseline_files:
+                    continue
                     
-            list_best_flat.append(best_hip_time)
+                with open(os.path.join(original_input, folder, baseline_files[0]), 'r') as f:
+                    data = json.load(f)
+                baseline_time = data['lat_us']
+                list_baselines_flat.append(baseline_time)
+                
+                jsonl_path = os.path.join(original_input, folder, "generation_history.jsonl")
+                best_hip_time = baseline_time  # Default to baseline
+                
+                if os.path.isfile(jsonl_path):
+                    smallest_hip_us = None
+                    with open(jsonl_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            try:
+                                entry = json.loads(line)
+                                event = entry.get("event", "")
+                                if event in ["sft_sample_phase1", "sft_sample_hpo"]:
+                                    current_hip_us = entry.get("hip_us")
+                                    if current_hip_us is not None:
+                                        if smallest_hip_us is None or current_hip_us < smallest_hip_us:
+                                            smallest_hip_us = current_hip_us
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    if smallest_hip_us is not None:
+                        best_hip_time = smallest_hip_us
+                        
+                list_best_flat.append(best_hip_time)
         
         stats = generate_summary_stats(list_baselines_flat, list_best_flat)
         main_folder = os.path.dirname(os.path.abspath(original_input))
         if main_folder.endswith('/kernel-agentic'):
             main_folder = os.path.dirname(main_folder)
         
-        update_evalboard(args.run_name, config, stats, original_input, main_folder)
+        update_evalboard(args.run_name, config, stats, original_input, main_folder, mode=run_mode)
         
-        print(f"\n  Custom run name '{args.run_name}' used in evalboard")
+        print(f"\n  Custom run name '{args.run_name}' used in evalboard (Mode: {run_mode})")
         print(f" Performance charts stored in: {os.path.join(main_folder, 'reports', args.run_name)}")
     else:
         main(input=args.input, grouping_file=args.grouping, level=args.level)

@@ -1,6 +1,6 @@
 # Prompts Used in This Run
 
-*Generated on: 2025-07-14 22:20:01*
+*Generated on: 2025-07-15 22:23:37*
 
 This folder contains all the prompts that were used during this optimization run. These prompts define how the AI models analyze PyTorch code and generate optimized kernels.
 
@@ -13,6 +13,8 @@ These prompts are used for initial kernel generation:
 ### ⚡ Optimization Prompts
 These prompts are used for performance optimization:
 - [`hip_opt.txt`](./hip_opt.txt)
+- [`hip_optimize.txt`](./hip_optimize.txt)
+- [`optimization.txt`](./optimization.txt)
 
 ### 🔧 Error Handling Prompts
 These prompts are used for fixing compilation/runtime errors:

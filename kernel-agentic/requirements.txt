@@ -40,3 +40,8 @@ markdown
 typing_extensions
 ddgs
 nltk
+tqdm
+scikit-learn
+seaborn
+matplotlib
+huggingface_hub
