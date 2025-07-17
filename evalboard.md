@@ -13,7 +13,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 | 1| KernelBench-level1-v0 | KernelBench-level1-v0 | P2K | 0.53x | 100.0% | 1165.8 | 15029.1 | 101 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 | 2| MatMul-level1 | MatMul-level1 | K2K | 0.50x | 100.0% | 7301.4 | 9461.5 | 16 | Mode: K2K, Lang: hip, Search: genetic, Gen: o3 |
 | 3| KernelBench-level1-v1 | KernelBench-level1-v1 | P2K | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
-| 4| level2_kernelbench | level2_kernelbench | P2K | 0.29x | 100.0% | 2172.4 | 18612.8 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
+| 4| level2_kernelbench | level2_kernelbench | P2K | 0.29x | 100.0% | 2172.4 | 18612.9 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 
 ## 📈 Performance Charts
 
@@ -28,7 +28,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 ### MatMul-level1
 
 #### Kernel Optimization Results
-![MatMul-level1 Optimization Chart](reports/KernelBench-level1-v1/average_baseline_barplot_grouped_log.png)
+![MatMul-level1 Optimization Chart](reports/level2_kernelbench/average_baseline_barplot_grouped_log.png)
 
 ### KernelBench-level1-v1
 
@@ -165,10 +165,10 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 #### Pipeline Settings
 - **Kernel Language**: hip
-- **RAG Enabled**: ❌
+- **RAG Enabled**: ✅
 - **Online Search**: ❌
 - **Cheat Sheet**: ✅
-- **Omnivise**: ✅
+- **Omnivise**: ❌
 - **Correctness Check**: ❌
 
 #### Search Configuration
@@ -208,4 +208,4 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 - **Prompts**: Links to actual prompt files used during optimization
 
 ---
-*Last updated: 2025-07-17 17:42:27*
+*Last updated: 2025-07-17 18:08:04*
