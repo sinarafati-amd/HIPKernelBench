@@ -25,18 +25,13 @@ run:
 	@mkdir -p logs
 	@for file in $(TORCH_FILE_DIR)/*.py; do \
 		base=$${file##*/}; \
-		name=$${base%.py}; \
 		echo "Running $$file"; \
+		name=$${base%.py}; \
+		python -m src.agents.orchestrator --mode pytorch2kernel --torch-file $$file; \
 		mkdir -p logs/$$name; \
-		if python -m src.agents.orchestrator --torch-file $$file > logs/$$name/output.log 2> logs/$$name/error.log; then \
-			echo "SUCCESS: $$file"; \
-		else \
-			echo "FAILURE: $$file (see logs/$$name/error.log)"; \
-		fi; \
-		if [ -f logs/generation_history.jsonl ]; then \
-			mv logs/generation_history.jsonl logs/$$name/; \
-		fi \
+		mv logs/generation_history.jsonl logs/$$name/; \
 	done
+
 
 optimize-kernels:
 	@mkdir -p logs

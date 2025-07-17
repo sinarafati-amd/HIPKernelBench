@@ -144,7 +144,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     searcher   = SearchAgent()
     generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
     runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
-
+    
     torch_expl_raw = analyser.analyse(torch_code)
 
     # ---- get explanation and corresponding kernels as cheat sheet ---------------------------------------------------
@@ -152,6 +152,7 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     # ---- initialization ---------------------------------------------------
     baseline_us = baseline_latency(torch_file, n_trial=2)
+    
     best_code: str | None   = None
     best_us                 = float("inf")
     best_stats: Dict[str,Any]|None = None
@@ -166,6 +167,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     full_ctx = doc_ctx + search_ctx
 
     # ---- Phase 1 LLM based kernel generation loop ---------------------------------------------------
+    
     while True:
         log.append({"event": "iteration_start", "iter": i})
         code_input = torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code
@@ -175,6 +177,7 @@ def orchestrate(torch_file: str, iterations: int | None):
         code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''
 
         kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
+        
         # ---------- compile & run -------------------------------------------
         try:
             stats, errors, kernel_file = runner.run(kernel_code)
@@ -182,7 +185,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             print(f"                                                               errors ")
             print(f"{errors}")
             print('-.'*70)
-
+            breakpoint()
             if CHK_NUM and not errors:
                 err = max_abs_err(torch_file, kernel_file)
                 errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
@@ -235,6 +238,7 @@ def orchestrate(torch_file: str, iterations: int | None):
                 "speedup": speedup,
                 "correct": correct
             })
+
             # ---------- keep a correct kernel? ----------------------------------
             if correct:
                 best_code  = Path(kernel_file).read_text()
@@ -277,6 +281,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             "response" : kernel_code,
             **(stats or {})
         })
+
         if not errors or errors == "":
             feedback_text = json.dumps({"profile": stats,"correct": True})
         else:
@@ -297,7 +302,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     if best_code is None:
         log.append({"event": "no_valid_kernel", "torch": torch_file})
         return
-
+    breakpoint()
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
     op_type = analyser.classify(torch_expl)
