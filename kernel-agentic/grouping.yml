@@ -149,7 +149,7 @@ level_2:
     - 'ConvTranspose3d_MaxPool_Softmax_Subtract_Swish_Max'
     - 'Conv3d_Divide_Max_GlobalAvgPool_BiasAdd_Sum'
     - 'Conv3d_LeakyReLU_Sum_Clamp_GELU'
-    - 'ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp-'
+    - 'ConvTranspose3d_Multiply_Max_GlobalAvgPool_Clamp'
 
   conv2d:
     - 'ConvTranspose2d_MaxPool_Hardtanh_Mean_Tanh'
@@ -183,7 +183,7 @@ level_2:
     - 'Conv2d_Subtract_Subtract_Mish'
     - 'ConvTranspose2d_Softmax_BiasAdd_Scaling_Sigmoid'
     - 'Conv2d_GroupNorm_Tanh_HardSwish_ResidualAdd_LogSumExp'
-    - 'ConvTranspose2d_Add_Min_GELU_Multiply-'
+    - 'ConvTranspose2d_Add_Min_GELU_Multiply'
 
   gemm:
     - 'Gemm_Multiply_LeakyReLU'
@@ -204,7 +204,7 @@ level_2:
     - 'Gemm_Swish_Divide_Clamp_Tanh_Clamp'
     - 'Gemm_BatchNorm_Scaling_Softmax'
     - 'Gemm_GroupNorm_Swish_Multiply_Swish'
-    - 'Gemm_BiasAdd_Hardtanh_Mish_GroupNorm-'
+    - 'Gemm_BiasAdd_Hardtanh_Mish_GroupNorm'
   
   matmul:
     - 'Matmul_Sum_Max_AvgPool_LogSumExp_LogSumExp'
@@ -223,7 +223,7 @@ level_2:
     - 'Matmul_BatchNorm_BiasAdd_Divide_Swish'
     - 'Matmul_AvgPool_GELU_Scale_Max'
     - 'Matmul_GELU_Softmax'
-    - 'Matmul_Subtract_Multiply_ReLU-'
+    - 'Matmul_Subtract_Multiply_ReLU'
 
   bmm:
-    - 'BMM_InstanceNorm_Sum_ResidualAdd_Multiply-'
+    - 'BMM_InstanceNorm_Sum_ResidualAdd_Multiply'
