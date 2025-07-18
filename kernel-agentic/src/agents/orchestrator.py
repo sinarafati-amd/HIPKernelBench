@@ -185,7 +185,7 @@ def orchestrate(torch_file: str, iterations: int | None):
             print(f"                                                               errors ")
             print(f"{errors}")
             print('-.'*70)
-            breakpoint()
+  
             if CHK_NUM and not errors:
                 err = max_abs_err(torch_file, kernel_file)
                 errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
@@ -302,7 +302,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     if best_code is None:
         log.append({"event": "no_valid_kernel", "torch": torch_file})
         return
-    breakpoint()
+
     # ============================  PHASE 2 – HPO  ===============================
     #  optimiser selection
     op_type = analyser.classify(torch_expl)
