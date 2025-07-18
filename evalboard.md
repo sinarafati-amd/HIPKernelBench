@@ -12,8 +12,9 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 |------|----------|--------------|------|-----------------|------------------|-------------------|----------------|---------------|---------------|
 | 1| KernelBench-level1-v0 | KernelBench-level1-v0 | P2K | 0.53x | 100.0% | 1165.8 | 15029.1 | 101 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 | 2| MatMul-level1 | MatMul-level1 | K2K | 0.50x | 100.0% | 7301.4 | 9461.5 | 16 | Mode: K2K, Lang: hip, Search: genetic, Gen: o3 |
-| 3| KernelBench-level1-v1 | KernelBench-level1-v1 | P2K | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
-| 4| level2_kernelbench | level2_kernelbench | P2K | 0.29x | 100.0% | 2172.4 | 18612.9 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
+| 3| level2_kernelbench_textdb | level2_kernelbench_textdb | P2K | 0.44x | 100.0% | 2168.2 | 17246.0 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
+| 4| KernelBench-level1-v1 | KernelBench-level1-v1 | P2K | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
+| 5| level2_kernelbench | level2_kernelbench | P2K | 0.29x | 100.0% | 2172.4 | 18612.9 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 
 ## 📈 Performance Charts
 
@@ -29,6 +30,14 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 
 #### Kernel Optimization Results
 ![MatMul-level1 Optimization Chart](reports/level2_kernelbench/average_baseline_barplot_grouped_log.png)
+
+### level2_kernelbench_textdb
+
+#### Average Performance by Group
+![level2_kernelbench_textdb Performance Chart](reports/level2_kernelbench_textdb/average_baseline_barplot_grouped_log.png)
+
+#### Performance Distribution
+![level2_kernelbench_textdb Density Plot](reports/level2_kernelbench_textdb/baseline_density_cleaned.png)
 
 ### KernelBench-level1-v1
 
@@ -46,7 +55,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 #### Performance Distribution
 ![level2_kernelbench Density Plot](reports/level2_kernelbench/baseline_density_cleaned.png)
 
-*Showing 4 performance chart(s)*
+*Showing 5 performance chart(s)*
 
 
 ## 📋 Kernel Optimization Reports
@@ -126,6 +135,41 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 #### Cheat Sheets
 📋 **Cheat Sheets**: [View cheat sheets](reports/MatMul-level1/cheat_sheets/)
 
+### level2_kernelbench_textdb
+
+#### Pipeline Settings
+- **Kernel Language**: hip
+- **RAG Enabled**: ✅
+- **Online Search**: ❌
+- **Cheat Sheet**: ✅
+- **Omnivise**: ❌
+- **Correctness Check**: ❌
+
+#### Search Configuration
+- **Method**: genetic
+- **Population**: 16
+- **Generations**: 20
+- **Patience**: 12
+
+#### Model Configuration
+- **Torch Analyser**: GPT-4o
+- **Kernel Generator**: o3
+- **Multi-Model Setup**: ✅ (Different models for analysis vs generation)
+
+#### Prompts Used
+📝 **Prompt Files**: [View all prompts](reports/level2_kernelbench_textdb/prompts/PROMPTS_SUMMARY.md)
+
+**Key Prompt Files**:
+- [`error_refine.txt`](reports/level2_kernelbench_textdb/prompts/error_refine.txt)
+- [`hip_naive.txt`](reports/level2_kernelbench_textdb/prompts/hip_naive.txt)
+- [`hip_opt.txt`](reports/level2_kernelbench_textdb/prompts/hip_opt.txt)
+- [`hip_optimize.txt`](reports/level2_kernelbench_textdb/prompts/hip_optimize.txt)
+- [`optimization.txt`](reports/level2_kernelbench_textdb/prompts/optimization.txt)
+- [`refinement.txt`](reports/level2_kernelbench_textdb/prompts/refinement.txt)
+
+#### Cheat Sheets
+📋 **Cheat Sheets**: [View cheat sheets](reports/level2_kernelbench_textdb/cheat_sheets/)
+
 ### KernelBench-level1-v1
 
 #### Pipeline Settings
@@ -196,7 +240,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 #### Cheat Sheets
 📋 **Cheat Sheets**: [View cheat sheets](reports/level2_kernelbench/cheat_sheets/)
 
-*Showing 4 detailed configuration(s)*
+*Showing 5 detailed configuration(s)*
 
 
 ## 📝 Notes
@@ -208,4 +252,4 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 - **Prompts**: Links to actual prompt files used during optimization
 
 ---
-*Last updated: 2025-07-17 18:23:00*
+*Last updated: 2025-07-18 22:34:13*
