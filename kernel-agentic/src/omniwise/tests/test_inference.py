@@ -93,7 +93,7 @@ print(f"Posting: {json_payload_str}")
 response = requests.post(
     SERVER_URL, headers={"Content-Type": "application/json"}, data=json_payload_str
 )
-breakpoint()
+
 # Print the server response
 print(f"Response: {response.status_code}")
 print(f"Response Body: {response.text}")
