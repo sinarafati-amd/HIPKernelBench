@@ -3,6 +3,7 @@
 An AI-powered framework for automatically generating, analyzing, and optimizing GPU kernels from PyTorch code. 
 
 Project Address： https://github.com/sinarafati-amd/HIPKernelBench/tree/dev_feature_branch_experimental 
+Evalboard Google Document: https://docs.google.com/document/d/1g_x3vTB_R1KVqkO6uR_FnFQmSYgUYhS93nqKaIU-w7c/edit?usp=sharing
 
 ## Project Overview
 

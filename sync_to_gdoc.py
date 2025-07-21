@@ -1,44 +1,135 @@
-from google.oauth2 import service_account
+from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 from datetime import datetime
-from pathlib import Path
 import os
-import base64
 import re
-from PIL import Image
-from io import BytesIO
-import mimetypes
 
-# Configs
+# === CONFIG ===
 DOC_ID = "1g_x3vTB_R1KVqkO6uR_FnFQmSYgUYhS93nqKaIU-w7c"
 MD_PATH = "evalboard.md"
-CREDENTIALS_PATH = "credentials.json"
-MAX_URI_SIZE = 2048  # 2KB
+CLIENT_SECRET_FILE = "client_secret.json"
+SCOPES = [
+    "https://www.googleapis.com/auth/documents",
+    "https://www.googleapis.com/auth/drive.file"
+]
 
-def resize_and_encode_image(img_path: str) -> str:
-    with Image.open(img_path) as img:
-        img.thumbnail((600, 600))  # Resize while maintaining aspect ratio
-        buffer = BytesIO()
-        img_format = "JPEG" if img.mode != "RGBA" else "PNG"
-        img.save(buffer, format=img_format)
-        buffer.seek(0)
-        return base64.b64encode(buffer.read()).decode('utf-8'), f"image/{img_format.lower()}"
+# === AUTH ===
+def get_oauth_credentials():
+    flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+    creds = flow.run_local_server(port=0)
+    return creds
 
+# === DRIVE UPLOAD ===
+def upload_image_to_drive(creds, image_path):
+    drive_service = build("drive", "v3", credentials=creds)
+    file_metadata = {
+        "name": os.path.basename(image_path),
+        "mimeType": "image/png"
+    }
+    media = MediaFileUpload(image_path, mimetype="image/png")
+    file = drive_service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields="id"
+    ).execute()
+    drive_service.permissions().create(
+        fileId=file["id"],
+        body={"type": "anyone", "role": "reader"}
+    ).execute()
+    return f"https://drive.google.com/uc?id={file['id']}"
+
+# === PARSE MARKDOWN LINES TO FORMATTED INSERTS ===
+def parse_markdown_line(line, insert_index):
+    requests = []
+    style_requests = []
+    original_line = line
+    line += "\n"
+    start = insert_index
+    end = insert_index + len(line)
+
+    # Headings
+    heading_level = 0
+    if line.startswith("# "):
+        heading_level = 1
+        text = line[2:]
+    elif line.startswith("## "):
+        heading_level = 2
+        text = line[3:]
+    elif line.startswith("### "):
+        heading_level = 3
+        text = line[4:]
+    else:
+        text = line
+
+    # Clean bold/italic
+    bold_spans = [(m.start(1), m.end(1)) for m in re.finditer(r'\*\*(.*?)\*\*', text)]
+    italic_spans = [(m.start(1), m.end(1)) for m in re.finditer(r'\*(.*?)\*', text) if not m.group(0).startswith("**")]
+
+    # Remove markdown symbols
+    text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)
+    text = re.sub(r'\*(.*?)\*', r'\1', text)
+
+    # Insert cleaned text
+    requests.append({
+        "insertText": {
+            "location": {"index": insert_index},
+            "text": text
+        }
+    })
+
+    # Heading styling
+    if heading_level > 0:
+        style_requests.append({
+            "updateTextStyle": {
+                "range": {"startIndex": start, "endIndex": end - 1},
+                "textStyle": {
+                    "bold": True,
+                    "fontSize": {"magnitude": 18 - (heading_level * 2), "unit": "PT"}
+                },
+                "fields": "bold,fontSize"
+            }
+        })
+
+    # Bold styling
+    offset = 0
+    for s, e in bold_spans:
+        style_requests.append({
+            "updateTextStyle": {
+                "range": {
+                    "startIndex": start + s - offset,
+                    "endIndex": start + e - offset
+                },
+                "textStyle": {"bold": True},
+                "fields": "bold"
+            }
+        })
+
+    # Italic styling
+    for s, e in italic_spans:
+        style_requests.append({
+            "updateTextStyle": {
+                "range": {
+                    "startIndex": start + s,
+                    "endIndex": start + e
+                },
+                "textStyle": {"italic": True},
+                "fields": "italic"
+            }
+        })
+
+    return requests, style_requests, len(text)
+
+# === MAIN FUNCTION ===
 def sync_to_google_docs():
-    # Auth
-    SCOPES = ['https://www.googleapis.com/auth/documents']
-    creds = service_account.Credentials.from_service_account_file(
-        CREDENTIALS_PATH, scopes=SCOPES
-    )
-    service = build('docs', 'v1', credentials=creds)
+    creds = get_oauth_credentials()
+    docs_service = build("docs", "v1", credentials=creds)
 
-    # Read markdown
     with open(MD_PATH, 'r') as file:
         markdown = file.read()
 
     markdown += f"\n\n(Synced from Git commit on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
 
-    # Prepare image and text replacement
     image_pattern = re.compile(r'!\[.*?\]\((.*?)\)')
     parts = image_pattern.split(markdown)
     texts = parts[::2]
@@ -46,48 +137,39 @@ def sync_to_google_docs():
 
     requests = []
 
-    # Fetch doc end index safely
-    doc = service.documents().get(documentId=DOC_ID).execute()
+    # Clear existing content
+    doc = docs_service.documents().get(documentId=DOC_ID).execute()
     end_index = doc.get("body", {}).get("content", [])[-1].get("endIndex", 1)
-
-    # Clear doc content
     requests.append({
         "deleteContentRange": {
-            "range": {
-                "startIndex": 1,
-                "endIndex": end_index - 1
-            }
+            "range": {"startIndex": 1, "endIndex": end_index - 1}
         }
     })
 
-    # Rebuild doc with inline images
     insert_index = 1
-    for i, text in enumerate(texts):
-        if text:
-            requests.append({
-                "insertText": {
-                    "location": {"index": insert_index},
-                    "text": text
-                }
-            })
-            insert_index += len(text)
+    for i, text_block in enumerate(texts):
+        style_requests = []
+        for line in text_block.splitlines():
+            text_reqs, style_reqs, added_len = parse_markdown_line(line, insert_index)
+            requests.extend(text_reqs)
+            requests.extend(style_reqs)
+            insert_index += added_len
 
         if i < len(image_paths):
-            img_path = os.path.join("HIPKernelBench", image_paths[i])
+            img_path = os.path.abspath(image_paths[i])
             if not os.path.exists(img_path):
                 print(f"⚠️ Skipping missing image: {img_path}")
                 continue
-
             try:
-                b64_data, mime_type = resize_and_encode_image(img_path)
-                uri = f"data:{mime_type};base64,{b64_data}"
-                if len(uri.encode('utf-8')) > MAX_URI_SIZE:
-                    raise ValueError("Image too large for inline base64 URI.")
+                image_url = upload_image_to_drive(creds, img_path)
                 requests.append({
                     "insertInlineImage": {
                         "location": {"index": insert_index},
-                        "uri": uri,
-                        "objectSize": {"height": {"magnitude": 300, "unit": "PT"}}
+                        "uri": image_url,
+                        "objectSize": {
+                            "height": {"magnitude": 300, "unit": "PT"},
+                            "width": {"magnitude": 400, "unit": "PT"}
+                        }
                     }
                 })
                 insert_index += 1
@@ -95,9 +177,9 @@ def sync_to_google_docs():
                 print(f"⚠️ Failed to insert image {img_path}: {e}")
                 continue
 
-    # Sync to doc
-    service.documents().batchUpdate(documentId=DOC_ID, body={"requests": requests}).execute()
-    print("✅ Google Doc updated.")
+    docs_service.documents().batchUpdate(documentId=DOC_ID, body={"requests": requests}).execute()
+    print("✅ Google Doc updated with markdown formatting.")
 
+# === RUN ===
 if __name__ == "__main__":
     sync_to_google_docs()
