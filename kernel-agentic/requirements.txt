@@ -45,3 +45,7 @@ scikit-learn
 seaborn
 matplotlib
 huggingface_hub
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
