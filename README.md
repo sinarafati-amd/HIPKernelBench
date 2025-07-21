@@ -99,7 +99,7 @@ make vector-store
 To specify a different language (default is HIP):
 
 ```bash
-make vector-store lang=cuda
+make vector-store LANG=cuda 
 ```
 
 ### Running the System

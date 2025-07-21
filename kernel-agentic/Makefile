@@ -1,8 +1,7 @@
 
-
-LANG ?= hip
 TORCH_FILE_DIR ?= torch_codes
 KERNEL_FILE_DIR ?= kernel_codes
+LANG ?= hip
 MODE ?= multimodal
 
 dev-setup:
@@ -10,7 +9,7 @@ dev-setup:
 
 .PHONY: vector-store
 vector-store:
-	@echo "Building vector store for lang='$(LANG)' mode='$(MODE)'..."
+	@echo "Building vector store for LANG='$(LANG)' MODE='$(MODE)'..."
 	python -m src.data.build_vector_store \
 	       --language "$(LANG)" \
 	       --mode "$(MODE)"

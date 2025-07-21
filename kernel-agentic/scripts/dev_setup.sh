@@ -26,3 +26,6 @@ echo "[INFO] Installing general project requirements..."
 uv pip install -r requirements.txt --no-cache-dir
 
 echo "[INFO] Development environment setup complete."
+
+# Activate the virtual environment
+source .venv/bin/activate
