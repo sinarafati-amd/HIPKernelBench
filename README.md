@@ -80,9 +80,7 @@ Each mode follows a two-phase approach:
    cd HIPKernelBench/kernel-agentic
    ```
 
-1. Install [uv](https://docs.astral.sh/uv/concepts/tools/).
-
-1. Install dependencies:
+2. Install dependencies:
    ```bash
    make dev-setup
    ```

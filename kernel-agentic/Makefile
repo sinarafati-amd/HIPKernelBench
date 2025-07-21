@@ -6,7 +6,7 @@ KERNEL_FILE_DIR ?= kernel_codes
 MODE ?= multimodal
 
 dev-setup:
-	uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt --no-cache-dir && \
+	bash scripts/dev_setup.sh
 
 .PHONY: vector-store
 vector-store:
@@ -14,12 +14,6 @@ vector-store:
 	python -m src.data.build_vector_store \
 	       --language "$(LANG)" \
 	       --mode "$(MODE)"
-
-install_rocm_pytorch:
-	uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm6.3
-
-dev_setup:
-	uv pip install -r requirements.txt
 
 run:
 	@mkdir -p logs
