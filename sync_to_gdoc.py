@@ -1,10 +1,3 @@
-"""
-Markdown to Google Docs Sync Tool
-
-A clean, efficient tool to sync Markdown files to Google Docs with proper formatting.
-Supports headings, bold, italic, lists, and image uploads to Google Drive.
-"""
-
 import json
 import os
 import re
@@ -114,7 +107,13 @@ class MarkdownParser:
     def parse_line(line: str, insert_index: int) -> Tuple[List[Dict], int]:
         """Parse a single line of Markdown and return API requests."""
         if not line.strip():
-            return [], 0
+            # Insert empty line to preserve spacing
+            return [{
+                "insertText": {
+                    "location": {"index": insert_index},
+                    "text": "\n"
+                }
+            }], 1
             
         requests = []
         original_line = line
@@ -365,10 +364,21 @@ class GoogleDocsSync:
         for i, text_block in enumerate(text_blocks):
             # Process text block line by line
             if text_block.strip():
-                for line in text_block.splitlines():
+                lines = text_block.splitlines()
+                for j, line in enumerate(lines):
                     line_requests, added_length = MarkdownParser.parse_line(line, insert_index)
                     requests.extend(line_requests)
                     insert_index += added_length
+                
+                # Add extra spacing after text blocks if they're not empty
+                if lines:
+                    requests.append({
+                        "insertText": {
+                            "location": {"index": insert_index},
+                            "text": "\n"
+                        }
+                    })
+                    insert_index += 1
             
             # Handle image if present
             if i < len(image_paths):
@@ -411,4 +421,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main()) 
+    exit(main())
