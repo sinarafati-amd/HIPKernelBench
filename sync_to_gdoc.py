@@ -1,7 +1,8 @@
 from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from googleapiclient.discovery import build
 from datetime import datetime
+import json
 import os
 import re
 
@@ -21,7 +22,22 @@ def get_oauth_credentials():
     return creds
 
 # === DRIVE UPLOAD ===
+
+CACHE_FILE = ".gdoc_image_cache.json"
+
+# Load cache if exists
+if os.path.exists(CACHE_FILE):
+    with open(CACHE_FILE, "r") as f:
+        IMAGE_CACHE = json.load(f)
+else:
+    IMAGE_CACHE = {}
+
 def upload_image_to_drive(creds, image_path):
+    global IMAGE_CACHE
+
+    if image_path in IMAGE_CACHE:
+        return f"https://drive.google.com/uc?id={IMAGE_CACHE[image_path]}"
+
     drive_service = build("drive", "v3", credentials=creds)
     file_metadata = {
         "name": os.path.basename(image_path),
@@ -33,10 +49,17 @@ def upload_image_to_drive(creds, image_path):
         media_body=media,
         fields="id"
     ).execute()
+
     drive_service.permissions().create(
         fileId=file["id"],
         body={"type": "anyone", "role": "reader"}
     ).execute()
+
+    # Save to cache
+    IMAGE_CACHE[image_path] = file["id"]
+    with open(CACHE_FILE, "w") as f:
+        json.dump(IMAGE_CACHE, f)
+
     return f"https://drive.google.com/uc?id={file['id']}"
 
 # === PARSE MARKDOWN LINES TO FORMATTED INSERTS ===
