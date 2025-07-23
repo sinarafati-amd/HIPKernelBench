@@ -33,5 +33,70 @@ Warp size: {wavefront}
 Shared memory per block: {shared_mem} bytes
 Peak SCLK: {max_sclk_mhz} MHz
 
+**CRITICAL REQUIREMENT:**
+- **MUST include both a main function for profiling AND a C wrapper for correctness checking**
+- **CRITICAL**: The C wrapper MUST have signature: `extern "C" void run_kernel(void* input, void* output, int size)`
+- **PRIORITY**: Maintain correctness while optimizing performance
+- ALWAYS check HIP API return values and handle errors properly
+
+**Memory Management Rules**:
+- Use minimal memory allocations - reuse buffers when possible
+- Free ALL allocated memory before returning
+- Assume input/output data is already on GPU (device pointers)
+- Avoid unnecessary memory copies
+
+**Correctness Requirements**:
+- Use double precision (double) for intermediate calculations when needed for accuracy
+- Handle edge cases and boundary conditions carefully
+- Ensure thread synchronization is correct
+- Validate optimizations don't break correctness
+
+**Important Notes for C Wrapper**:
+- Input/output pointers are ALREADY device pointers (GPU memory)
+- If your kernel needs multiple inputs, they are packed consecutively in the input buffer
+- If your kernel needs multiple outputs, pack them consecutively in the output buffer  
+- The 'size' parameter represents the total number of elements to process
+- DO NOT allocate/copy host memory - work directly with device pointers
+
+**Required Structure:**
+```cpp
+#include <hip/hip_runtime.h>
+#include <iostream>
+
+__global__ void your_kernel_name(...) {{
+    // Your optimized kernel implementation
+    // Maintain correctness while optimizing performance
+    // Use proper bounds checking: if (idx >= size) return;
+}}
+
+// C wrapper for correctness checking - MUST match this exact signature
+extern "C" void run_kernel(void* input, void* output, int size) {{
+    // Cast device pointers (already on GPU)
+    float* d_input = static_cast<float*>(input);
+    float* d_output = static_cast<float*>(output);
+    
+    // For multiple inputs: unpack from input buffer
+    // float* d_input1 = d_input;
+    // float* d_input2 = d_input + offset;
+    
+    // Launch kernel with appropriate grid/block dimensions
+    int block_size = 256;
+    int grid_size = (size + block_size - 1) / block_size;
+    
+    your_kernel_name<<<grid_size, block_size>>>(d_input, d_output, size);
+    
+    hipError_t err = hipDeviceSynchronize();
+    if (err != hipSuccess) {{
+        std::cerr << "HIP error: " << hipGetErrorString(err) << std::endl;
+    }}
+}}
+
+// Main function for profiling and standalone execution  
+int main() {{
+    // Test with appropriate data sizes
+    // Free all allocated memory
+    return 0;
+}}
+```
 
 Return ONLY compilable HIP C++.

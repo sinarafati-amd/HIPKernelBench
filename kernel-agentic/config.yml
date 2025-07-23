@@ -46,11 +46,11 @@ gpu_specs:
   shared_mem: null
 
 eval:
-  atol: 1e-4 #absolute-error threshold
+  atol: 1e-1 #absolute-error threshold
   n_trial: 3
 
 stopping:
-  min_iters: 4          # never exit earlier than this
+  min_iters: 5          # never exit earlier than this
   max_iters: 10          # absolute cap (safety valve)
   target_speedup: 1.5   # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”

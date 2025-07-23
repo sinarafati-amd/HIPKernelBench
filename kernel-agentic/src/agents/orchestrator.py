@@ -33,7 +33,7 @@ HIP_CFG     = CFG.get("hip",  {})
 LOG_DIR   = pathlib.Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 SEARCH_CFG = PIPELINE_CFG['search']
-ATOL     = EVAL_CFG.get("atol", 1e-3)
+ATOL     = float(EVAL_CFG.get("atol", 1e-3))
 CHK_NUM    = PIPELINE_CFG.get("enable_correctness", False) 
 
 def _apply_tunables(code: str, params: Dict[str, Any]) -> str:
@@ -167,7 +167,6 @@ def orchestrate(torch_file: str, iterations: int | None):
     full_ctx = doc_ctx + search_ctx
 
     # ---- Phase 1 LLM based kernel generation loop ---------------------------------------------------
-    
     while True:
         log.append({"event": "iteration_start", "iter": i})
         code_input = torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code
@@ -175,7 +174,6 @@ def orchestrate(torch_file: str, iterations: int | None):
         # cheat sheet of relevant kernels is only necessary on first iteration because subsequent iterations
         # already have an existing kernel to work from that the LLM wrote
         code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''
-
         kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
         
         # ---------- compile & run -------------------------------------------
@@ -187,8 +185,27 @@ def orchestrate(torch_file: str, iterations: int | None):
             print('-.'*70)
   
             if CHK_NUM and not errors:
-                err = max_abs_err(torch_file, kernel_file)
-                errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
+                # Construct shared library path from kernel file path
+                kernel_dir = os.path.dirname(kernel_file)
+                so_path = os.path.join(kernel_dir, "kernel.so")
+                if os.path.exists(so_path):
+                    try:
+                        err = max_abs_err(torch_file, so_path)
+                        errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
+                        log.append({"event": "correctness_check", "status": "passed" if not errors else "failed", "error": errors, "actual_error": err})
+                    except AttributeError as e:
+                        if "undefined symbol: run_kernel" in str(e):
+                            errors = "Kernel does not expose run_kernel interface for correctness checking"
+                        else:
+                            errors = f"Correctness check failed: {str(e)}"
+                        log.append({"event": "correctness_check", "status": "failed", "error": errors})
+                    except Exception as e:
+                        errors = f"Correctness check error: {str(e)}"
+                        log.append({"event": "correctness_check", "status": "failed", "error": errors})
+                else:
+                    errors = f"Shared library not found at {so_path}"
+                    log.append({"event": "correctness_check", "status": "failed", "error": errors})
+                correctness_triggered = True
             fails = 0
         except Exception as exc:
             fails += 1

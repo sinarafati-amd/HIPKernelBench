@@ -32,6 +32,7 @@ class Executor:
             })
             return None, stderr, kernel_file
         # otherwise profile the binary
+        bin_path = bin_path.replace('.so','.hip')
         stats = profile(bin_path)
         log.append({
             "event": "execution_stats",
