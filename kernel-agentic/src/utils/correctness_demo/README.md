@@ -12,8 +12,10 @@ It reports timing results and checks if both implementations produce equivalent 
 ## Files
 
 - `run_and_check_minimal.py` — Main benchmarking script
-- `100_HingeLoss.py` — ROCm custom kernel model
-- `<ref_model>.py` — Reference PyTorch model
+- `100_HingeLoss.py` — Reference PyTorch model
+- `100_HingeLoss_new.py` — ROCm custom kernel model
+- `hinge_loss.cpp` — PyTorch custom op using pybind
+- `hinge_loss_kernel.hip` — Kernel code with tensor entry
 
 ---
 
