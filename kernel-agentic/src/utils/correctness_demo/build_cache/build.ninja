@@ -1,0 +1,37 @@
+ninja_required_version = 1.3
+cxx = c++
+nvcc = /opt/rocm-6.4.2/bin/hipcc
+
+cflags = -DTORCH_EXTENSION_NAME=hinge_loss -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1016\" -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include/THH -isystem /opt/rocm-6.4.2/include -isystem /usr/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=1 -fPIC -std=c++17 -I/opt/rocm/include
+post_cflags = -fPIC -D__HIP_PLATFORM_AMD__=1 -DUSE_ROCM=1 -DHIPBLAS_V2
+cuda_cflags = -DWITH_HIP -DTORCH_EXTENSION_NAME=hinge_loss -DTORCH_API_INCLUDE_EXTENSION_H -DPYBIND11_COMPILER_TYPE=\"_gcc\" -DPYBIND11_STDLIB=\"_libstdcpp\" -DPYBIND11_BUILD_ABI=\"_cxxabi1016\" -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include/torch/csrc/api/include -isystem /home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/include/THH -isystem /opt/rocm-6.4.2/include -isystem /usr/include/python3.10 -D_GLIBCXX_USE_CXX11_ABI=1 -fPIC -std=c++17 -I/opt/rocm/include -fPIC -D__HIP_PLATFORM_AMD__=1 -DUSE_ROCM=1 -DHIPBLAS_V2 -DCUDA_HAS_FP16=1 -D__HIP_NO_HALF_OPERATORS__=1 -D__HIP_NO_HALF_CONVERSIONS__=1 -I/opt/rocm/include --offload-arch=gfx900 --offload-arch=gfx906 --offload-arch=gfx908 --offload-arch=gfx90a --offload-arch=gfx942 --offload-arch=gfx1030 --offload-arch=gfx1100 --offload-arch=gfx1101 --offload-arch=gfx1102 --offload-arch=gfx1200 --offload-arch=gfx1201 -fno-gpu-rdc
+cuda_post_cflags = 
+cuda_dlink_post_cflags = 
+sycl_dlink_post_cflags = 
+ldflags = -shared -L/opt/rocm/lib -lamdhip64 -L/home/haoli103/HIPKernelBench/kernel-agentic/.venv/lib/python3.10/site-packages/torch/lib -lc10 -lc10_hip -ltorch_cpu -ltorch_hip -ltorch -ltorch_python -L/opt/rocm-6.4.2/lib -lamdhip64
+
+rule compile
+  command = $cxx -MMD -MF $out.d $cflags -c $in -o $out $post_cflags
+  depfile = $out.d
+  deps = gcc
+
+rule cuda_compile
+  command = $nvcc  $cuda_cflags -c $in -o $out $cuda_post_cflags
+
+
+
+
+
+rule link
+  command = $cxx $in $ldflags -o $out
+
+build hinge_loss_kernel.cuda.o: cuda_compile /home/haoli103/kernelgen/KernelBench/level1/test/hinge_loss_kernel.hip
+build hinge_loss.o: compile /home/haoli103/kernelgen/KernelBench/level1/test/hinge_loss.cpp
+
+
+
+
+
+build hinge_loss.so: link hinge_loss_kernel.cuda.o hinge_loss.o
+
+default hinge_loss.so
