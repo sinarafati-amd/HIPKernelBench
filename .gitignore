@@ -708,4 +708,5 @@ kernel-agentic/logs-level1-v1/*
 kernel-agentic/logs-level1-v0/*
 kernel-agentic/kernel_codes/*
 kernel-agentic/logs-k2k/*
-credentials.json
+client_secret.json
+.gdoc_image_cache.json

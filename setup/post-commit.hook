@@ -1,0 +1,13 @@
+#!/bin/bash
+# Update Google Doc after commit
+if git diff-tree --no-commit-id --name-only -r HEAD | grep -q "evalboard.md"; then
+  echo ":outbox_tray: Syncing evalboard.md to Google Docs..."
+  python3 sync_to_gdoc.py \
+    --md-path evalboard.md \
+    --doc-id "1g_x3vTB_R1KVqkO6uR_FnFQmSYgUYhS93nqKaIU-w7c" \
+    --creds-path client_secret.json
+  echo ":white_check_mark: Sync complete."
+else
+  echo ":information_source: No changes to evalboard.md — skipping sync."
+fi
+
