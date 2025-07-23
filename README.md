@@ -161,3 +161,13 @@ The system is configured through the `config.yml` file with the following key se
 - **training**: LoRA and GRPO fine-tuning parameters
 
 
+## 🛠 Google Docs Sync Setup (Local)
+
+This repo includes a Git `post-commit` hook that automatically syncs `evalboard.md` to a shared Google Doc whenever it's changed and committed.
+
+### One-Time Setup
+
+Run:
+
+```bash
+bash setup/setup.sh
