@@ -1,6 +1,5 @@
 # HIP Kernel Benchmark evalboard 🏆
 
-
 Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance of different optimization runs across various kernel categories.
 
 ## 📊 Rankings
