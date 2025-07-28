@@ -227,3 +227,69 @@ level_2:
 
   bmm:
     - 'BMM_InstanceNorm_Sum_ResidualAdd_Multiply'
+level_3:
+  mlp:
+    - 'MLP'
+    - 'ShallowWideMLP'
+    - 'DeepNarrowMLP'
+
+  cnn_classification:
+    - 'LeNet5'
+    - 'AlexNet'
+    - 'GoogleNetInceptionModule'
+    - 'GoogleNetInceptionV1'
+    - 'ResNetBasicBlock'
+    - 'ResNet18'
+    - 'ResNet101'
+    - 'VGG16'
+    - 'VGG19'
+    - 'DenseNet121TransitionLayer'
+    - 'DenseNet121DenseBlock'
+    - 'DenseNet121'
+    - 'DenseNet201'
+    - 'SqueezeNetFireModule'
+    - 'SqueezeNet'
+    - 'MobileNetV1'
+    - 'MobileNetV2'
+    - 'EfficientNetMBConv'
+    - 'EfficientNetB0'
+    - 'EfficientNetB1'
+    - 'EfficientNetB2'
+    - 'ShuffleNetUnit'
+    - 'ShuffleNet'
+    - 'RegNet'
+
+  transformer_vision:
+    - 'VisionTransformer'
+    - 'SwinMLP'
+    - 'SwinTransformerV2'
+    - 'VisionAttention'
+    - 'ConvolutionalVisionTransformer'
+
+  rnn:
+    - 'VanillaRNN'
+    - 'VanillaRNNHidden'
+    - 'LTSM'
+    - 'LTSMHn'
+    - 'LTSMCn'
+    - 'LTSMBidirectional'
+    - 'GRU'
+    - 'GRUHidden'
+    - 'GRUBirectional'
+    - 'GRUBidirectionalHidden'
+
+  gpt:
+    - 'MinGPTCausalAttention'
+    - 'MiniGPTBlock'
+    - 'ReLUSelfAttention'
+
+  unet:
+    - 'UNetSoftmax'
+
+  netvlad:
+    - 'NetVladWithGhostClusters'
+    - 'NetVladNoGhostClusters'
+
+  mamba:
+    - 'Mamba2ReturnY'
+    - 'Mamba2ReturnFinalState'

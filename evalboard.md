@@ -1,6 +1,5 @@
 # HIP Kernel Benchmark evalboard 🏆
 
-
 Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance of different optimization runs across various kernel categories.
 
 ## 📊 Rankings
@@ -16,6 +15,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 | 3| level2_kernelbench_textdb | level2_kernelbench_textdb | P2K | 0.44x | 100.0% | 2168.2 | 17246.0 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 | 4| KernelBench-level1-v1 | KernelBench-level1-v1 | P2K | 0.30x | 100.0% | 1191.1 | 12788.1 | 99 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 | 5| level2_kernelbench | level2_kernelbench | P2K | 0.29x | 100.0% | 2172.4 | 18612.9 | 96 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
+| 8| level3_v0 | level3_v0 | P2K | 0.02x | 100.0% | 31862.7 | 316613.0 | 50 | Mode: P2K, Lang: hip, Search: genetic, Gen: o3 |
 
 ## 📈 Performance Charts
 
@@ -30,7 +30,7 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 ### MatMul-level1
 
 #### Kernel Optimization Results
-![MatMul-level1 Optimization Chart](reports/level2_kernelbench/average_baseline_barplot_grouped_log.png)
+-![MatMul-level1 Optimization Chart](reports/level2_kernelbench/average_baseline_barplot_grouped_log.png)
 
 ### level2_kernelbench_textdb
 
@@ -56,7 +56,15 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 #### Performance Distribution
 ![level2_kernelbench Density Plot](reports/level2_kernelbench/baseline_density_cleaned.png)
 
-*Showing 5 performance chart(s)*
+### level3_v0
+
+#### Average Performance by Group
+![level3_v0 Performance Chart](reports/level3_v0/average_baseline_barplot_grouped_log.png)
+
+#### Performance Distribution
+![level3_v0 Density Plot](reports/level3_v0/baseline_density_cleaned.png)
+
+*Showing 6 performance chart(s)*
 
 
 ## 📋 Kernel Optimization Reports
@@ -241,7 +249,42 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 #### Cheat Sheets
 📋 **Cheat Sheets**: [View cheat sheets](reports/level2_kernelbench/cheat_sheets/)
 
-*Showing 5 detailed configuration(s)*
+### level3_v0
+
+#### Pipeline Settings
+- **Kernel Language**: hip
+- **RAG Enabled**: ❌
+- **Online Search**: ❌
+- **Cheat Sheet**: ✅
+- **Omnivise**: ✅
+- **Correctness Check**: ❌
+
+#### Search Configuration
+- **Method**: genetic
+- **Population**: 16
+- **Generations**: 20
+- **Patience**: 12
+
+#### Model Configuration
+- **Torch Analyser**: GPT-4o
+- **Kernel Generator**: o3
+- **Multi-Model Setup**: ✅ (Different models for analysis vs generation)
+
+#### Prompts Used
+📝 **Prompt Files**: [View all prompts](reports/level3_v0/prompts/PROMPTS_SUMMARY.md)
+
+**Key Prompt Files**:
+- [`error_refine.txt`](reports/level3_v0/prompts/error_refine.txt)
+- [`hip_naive.txt`](reports/level3_v0/prompts/hip_naive.txt)
+- [`hip_opt.txt`](reports/level3_v0/prompts/hip_opt.txt)
+- [`hip_optimize.txt`](reports/level3_v0/prompts/hip_optimize.txt)
+- [`optimization.txt`](reports/level3_v0/prompts/optimization.txt)
+- [`refinement.txt`](reports/level3_v0/prompts/refinement.txt)
+
+#### Cheat Sheets
+📋 **Cheat Sheets**: [View cheat sheets](reports/level3_v0/cheat_sheets/)
+
+*Showing 8 detailed configuration(s)*
 
 
 ## 📝 Notes
@@ -253,4 +296,4 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
 - **Prompts**: Links to actual prompt files used during optimization
 
 ---
-*Last updated: 2025-07-18 22:34:13*
+*Last updated: 2025-07-27 23:54:05*
