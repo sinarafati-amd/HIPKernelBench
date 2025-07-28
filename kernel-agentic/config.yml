@@ -4,7 +4,7 @@ Pipeline:
   rag_enabled: false
   online_search: false
   cheat_sheet: true
-  omnivise: true
+  omnivise: false
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
   mode: kernel2kernel  # Options: pytorch2kernel, kernel2kernel
