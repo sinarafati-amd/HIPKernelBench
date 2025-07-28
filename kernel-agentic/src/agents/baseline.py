@@ -7,9 +7,6 @@ import os
 import time
 
 def _extract_kernel_time_from_csv(csv_file):
-    """
-    The profiling tool outputs csv files which need to be parsed
-    """
     with open(csv_file, 'r') as f:
         total_duration_ns = sum(float(row['TotalDurationNs']) for row in csv.DictReader(f))
         # Convert nanoseconds to microseconds
@@ -17,21 +14,10 @@ def _extract_kernel_time_from_csv(csv_file):
 
 def baseline_latency(
     torch_file: str,
-    n_trial: int = 30,
+    n_trial: int,
     warmup: int = 1,
-    regenerate_inputs: bool = False,
 ) -> float:
-    """
-    Measure the reference latency of code in `torch_file` on ROCm GPU
-    using the rocprof tool.
-
-    Returns average latency in **micro-seconds**.
-    """
-    # Extract the filename stem for reporting
     stem = pathlib.Path(torch_file).stem
-
-    # Create a simple wrapper script that imports and runs the model
-    # Fix: Use double braces to escape curly braces in f-string
     wrapper_script = f"""
 import torch
 import pathlib
@@ -86,13 +72,11 @@ else:
     exit(1)
 """
 
-    # Write the wrapper script to a temporary file
     with tempfile.NamedTemporaryFile(suffix='.py', delete=False, mode='w') as f:
         f.write(wrapper_script)
         wrapper_path = f.name
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Path for rocprof output JSON
         res_basename = "rocprof_output"
         output_csv = pathlib.Path(temp_dir) / f'{res_basename}.csv'
 
@@ -118,10 +102,10 @@ else:
             # the numbers we're parsing in the `.stats.csv` as a sanity check.
             total_time_us = _extract_kernel_time_from_csv(pathlib.Path(temp_dir) / f'{res_basename}.stats.csv')
             all_latencies.append(total_time_us)
-            print(f"completed ({total_time_us:.2f} µs)")
+            print(f"completed ({total_time_us:.2f} microseconds)")
 
     os.unlink(wrapper_path)
-    
+
     lat_us = sum(all_latencies) / len(all_latencies)
-    print(f"Average latency for {stem}: {lat_us:.2f} µs")
+    print(f"Average latency for {stem}: {lat_us:.2f} microseconds")
     return lat_us

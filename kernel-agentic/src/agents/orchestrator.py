@@ -151,7 +151,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     torch_expl, cheat_code = _parse_torch_analysis(torch_expl_raw, kernel_lang)
 
     # ---- initialization ---------------------------------------------------
-    baseline_us = baseline_latency(torch_file, n_trial=2)
+    baseline_us = baseline_latency(torch_file, n_trial=30)
     
     best_code: str | None   = None
     best_us                 = float("inf")
