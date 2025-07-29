@@ -49,3 +49,11 @@ google-api-python-client
 google-auth
 google-auth-httplib2
 google-auth-oauthlib
+astunparse==1.6.2
+colorlover
+dash>=1.12.0
+pymongo
+dash-svg
+dash-bootstrap-components
+kaleido==0.2.1
+plotille
