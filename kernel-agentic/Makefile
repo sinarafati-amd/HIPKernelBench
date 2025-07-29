@@ -1,7 +1,7 @@
 
 TORCH_FILE_DIR ?= torch_codes
 KERNEL_FILE_DIR ?= kernel_codes
-LANG ?= hip
+KERNEL_LANG ?= hip
 MODE ?= multimodal
 
 dev-setup:
@@ -9,9 +9,10 @@ dev-setup:
 
 .PHONY: vector-store
 vector-store:
-	@echo "Building vector store for LANG='$(LANG)' MODE='$(MODE)'..."
+	@echo "Building vector store for KERNEL_LANG='$(KERNEL_LANG)' MODE='$(MODE)'..."
+	python -m nltk.downloader punkt punkt_tab 
 	python -m src.data.build_vector_store \
-	       --language "$(LANG)" \
+	       --language "$(KERNEL_LANG)" \
 	       --mode "$(MODE)"
 
 run:
