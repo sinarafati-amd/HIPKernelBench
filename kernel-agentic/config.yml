@@ -4,15 +4,16 @@ Pipeline:
   rag_enabled: false
   online_search: false
   cheat_sheet: true
-  omnivise: true
+  omnivise: false
   kernel_lang: hip  # Options: hip, cuda, triton
   enable_correctness: false 
+  help_injection: false
   mode: kernel2kernel  # Options: pytorch2kernel, kernel2kernel
   search:
     enabled: true
     method: genetic         # bayes | genetic
-    patience: 12             # for genetic
-    max_trials: 12        # for Bayesian
+    patience: 6             # for genetic
+    max_trials: 6        # for Bayesian
     pop: 16               # for GA
     ngen: 20
 
@@ -36,8 +37,13 @@ openai:
       temperature: 0.01
     kernel_generator:
       api_version: 2024-12-01-preview
-      model_name: o3
+      model_name: Claude-4
       temperature: 0.3
+
+claude:
+  timeout: 120        # Timeout in seconds for Claude API calls
+  max_retries: 3      # Number of retry attempts on timeout/server errors
+  retry_delay: 1
 
 gpu_specs:
   arch: null

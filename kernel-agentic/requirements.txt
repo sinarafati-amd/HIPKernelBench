@@ -57,3 +57,5 @@ dash-svg
 dash-bootstrap-components
 kaleido==0.2.1
 plotille
+anthropic
+httpx 

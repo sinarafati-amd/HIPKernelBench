@@ -35,6 +35,7 @@ LOG_DIR.mkdir(exist_ok=True)
 SEARCH_CFG = PIPELINE_CFG['search']
 ATOL     = float(EVAL_CFG.get("atol", 1e-3))
 CHK_NUM    = PIPELINE_CFG.get("enable_correctness", False) 
+CHK_Help   = PIPELINE_CFG.get("help_injection", False) 
 
 def _apply_tunables(code: str, params: Dict[str, Any]) -> str:
     patched = code
@@ -134,9 +135,16 @@ def orchestrate(torch_file: str, iterations: int | None):
 
     # ---- helpers -----------------------------------------------------------
     torch_code = torch_path.read_text()
-    
+    torch_name = torch_path.stem
     # Get kernel language from config
     kernel_lang = PIPELINE_CFG.get("kernel_lang", "hip").lower()
+
+    if CHK_Help:
+        path_for_help = os.path.join(Path(__file__).parent.parent.parent,'docs',kernel_lang,'kernel_bench.json')
+        if os.path.exists(path_for_help):
+            with open(path_for_help, 'r') as help_file:
+                help_data = json.load(help_file)
+                print("Help data loaded successfully.")
     
     analyser   = TorchAnalyser()
     feedback_analyzer = KernelFeedbackAnalyser() 
@@ -171,6 +179,11 @@ def orchestrate(torch_file: str, iterations: int | None):
         log.append({"event": "iteration_start", "iter": i})
         code_input = torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code
 
+        if CHK_Help:
+            if i==1:
+                # Inject help data into the code input if help injection is enabled
+                code_input += "\n\n [Here is the help data:] \n\n" + json.dumps(help_data[torch_name]['source'], indent=2)
+            
         # cheat sheet of relevant kernels is only necessary on first iteration because subsequent iterations
         # already have an existing kernel to work from that the LLM wrote
         code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''

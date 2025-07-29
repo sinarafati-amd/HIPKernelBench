@@ -135,8 +135,13 @@ class KernelGenerator(BaseAgent):
             temperature            = temperature,
             agent_name             = "kernel_generator"  # Pass agent name for model selection
         )
-        
-        raw = resp.choices[0].message.content
+        # Handle response content safely for both OpenAI and Claude
+        try:
+            raw = resp.choices[0].message.content
+        except (AttributeError, IndexError, TypeError):
+            # Fallback for unexpected response format
+            raw = str(resp)
+            
         raw = re.sub(r'^```[^\n]*\n', '', raw)
         raw = re.sub(r'\n```$', '', raw)
 
@@ -144,7 +149,12 @@ class KernelGenerator(BaseAgent):
         if lines and re.fullmatch(r'[A-Za-z0-9_+\-]+', lines[0]):
             lines.pop(0)
         kernel_src = "\n".join(lines).strip()
-        last_usage = resp.usage
+        
+        # Handle usage information safely
+        try:
+            last_usage = resp.usage
+        except AttributeError:
+            last_usage = None
 
 
         # ------------------------------------------------------------------
