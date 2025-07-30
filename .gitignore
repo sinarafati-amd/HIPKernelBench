@@ -710,3 +710,5 @@ kernel-agentic/kernel_codes/*
 kernel-agentic/logs-k2k/*
 client_secret.json
 .gdoc_image_cache.json
+logs_ctypes/*
+logsv0/*

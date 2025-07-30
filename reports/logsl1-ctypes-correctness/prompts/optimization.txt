@@ -1,0 +1,12 @@
+Based on the performance feedback and profiling data below, apply targeted optimizations to improve the kernel:
+
+{error_or_profile}
+
+Key optimization strategies to consider:
+1. **Memory Access Optimization**: Improve coalescing, reduce bank conflicts
+2. **Compute Optimization**: Better utilization of compute units, vectorization
+3. **Occupancy Optimization**: Balance register usage vs. occupancy
+4. **Algorithm Optimization**: Consider alternative algorithms or data structures
+5. **Synchronization Optimization**: Minimize unnecessary synchronization
+
+Focus on the most impactful optimizations based on the profiling data. If there are compilation errors, fix those first while maintaining performance improvements.
