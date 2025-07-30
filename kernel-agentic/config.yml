@@ -27,6 +27,7 @@ openai:
     Ocp-Apim-Subscription-Key: fe76c012dd51448cb0ec5f1e86c298a9      
     user: sirafati       
   temperature: 0.1
+  public_api_key: null
   
   # Agent-specific model configurations
   agent_models:

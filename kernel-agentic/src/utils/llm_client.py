@@ -67,6 +67,10 @@ def chat(
     Args:
         agent_name: Optional agent name to use agent-specific model configuration
     """
+    if os.path.exists("config.yml") and \
+        yaml.safe_load(open("config.yml")).get("openai", {}).get("public_api_key"):
+        return chat_public(messages, temperature, stream, max_completion_tokens, reasoning_effort, agent_name, **extra)
+        
     client, model_id, api_version = _get_client_for_agent(agent_name)
     params = {
         "model": model_id,
@@ -83,3 +87,60 @@ def chat(
     # merge any other extra args 
     params.update({k: v for k, v in extra.items() if k not in ["temperature", "agent_name"]})
     return client.chat.completions.create(**params)
+
+
+def chat_public(
+    messages: list[dict[str, str]],
+    temperature: float = 0.2,
+    stream: bool = False,
+    max_completion_tokens: int = 512,
+    reasoning_effort: str = "low",
+    agent_name: str = None,
+    **extra,
+) -> "openai.types.chat.ChatCompletion":
+    """
+    Similar to chat(), but uses the public OpenAI API (public_api_key from config.yml). 
+    Please use it cautiously. Do not use it for sensitive data.
+    """
+    if os.path.exists("config.yml"):
+        api_key = yaml.safe_load(open("config.yml")).get("openai", {}).get("public_api_key")
+    else:
+        raise RuntimeError("No config.yml found.")
+    client = openai.OpenAI(api_key=api_key)
+    model_id = extra.get("model", "o3")  # use o3 model by default
+    params = {
+        "model": model_id,
+        "messages": messages,
+        "stream": stream,
+    }
+    # Use correct max tokens parameter name
+    if "o3" in model_id.lower():
+        params["max_completion_tokens"] = max_completion_tokens
+        # Do NOT set temperature for o3 models (only default 1 is supported)
+    else:
+        params["max_tokens"] = max_completion_tokens
+        params["temperature"] = temperature
+    # merge any other extra args except temperature and agent_name
+    params.update({k: v for k, v in extra.items() if k not in ["temperature", "agent_name"]})
+    return client.chat.completions.create(**params)
+
+
+if __name__ == "__main__":
+    
+    # Minimal test for public_chat
+    test_messages = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What is the capital of France?"},
+    ]
+    try:
+        response = chat_public(test_messages, temperature=0.1)
+        print("public_chat test response:")
+        # Try to print the content of the first choice if available
+        if hasattr(response, "choices") and response.choices:
+            print(response.choices[0].message.content)
+        else:
+            print(response)
+    except Exception as e:
+        print(f"public_chat test failed: {e}")
+
+

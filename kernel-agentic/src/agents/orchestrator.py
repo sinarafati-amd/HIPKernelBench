@@ -140,7 +140,7 @@ def orchestrate(torch_file: str, iterations: int | None):
     
     analyser   = TorchAnalyser()
     feedback_analyzer = KernelFeedbackAnalyser() 
-    researcher = RAGResearcher(kernel_lang=kernel_lang)  # Language-specific RAG
+    researcher = RAGResearcher(kernel_lang=kernel_lang) if PIPELINE_CFG['rag_enabled'] else None  # Language-specific RAG
     searcher   = SearchAgent()
     generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
     runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
@@ -455,7 +455,7 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
     
     analyser = KernelAnalyser(kernel_lang=kernel_lang)
     feedback_analyzer = KernelFeedbackAnalyser()
-    researcher = RAGResearcher(kernel_lang=kernel_lang)
+    researcher = RAGResearcher(kernel_lang=kernel_lang) if PIPELINE_CFG['rag_enabled'] else None
     searcher = SearchAgent()
     optimizer = KernelOptimizer(kernel_lang=kernel_lang)
     runner = Executor(kernel_lang=kernel_lang)

@@ -141,11 +141,11 @@ DEFAULT_WEIGHTS = {
     "L1 GFLOP/S" : 0.10,
     "L2 GFLOP/S" : 0.10,
     "HBM GFLOP/S": 0.10,
-    # 带宽
+    # Bandwidth
     "vL1D Cache BW" : 0.05,
     "L2 Cache BW"   : 0.05,
     "HBM BW"        : 0.05,
-    # 命中率
+    # Hit Rate
     "vL1D Cache Hit Rate" : 0.05,
     "L2 Cache Hit Rate"   : 0.05,
     # Fabric
@@ -205,7 +205,17 @@ rocprof_pmc_column_desc = {
     "TCC_EA0_WRREQ_sum": "All external memory write requests at L2 bank 0.",
 }
 
-def collect_metrics(run_dir: str | Path) -> pd.DataFrame:
+def make_raw_pmc_str(row):
+    raw_pmc_dict = {}
+    for key, value in rocprof_pmc_column_desc.items():
+        tmp_key = value
+        tmp_value = row[key]
+        if isinstance(tmp_value, (np.generic, np.ndarray)):
+            tmp_value = tmp_value.item()
+        raw_pmc_dict[tmp_key] = tmp_value
+    return str(raw_pmc_dict)
+
+def collect_metrics(run_dir: Path) -> pd.DataFrame:
     """
     Read four rocprof-compute CSV files and calculate for each kernel:
        - AI (FLOPs / Byte) 3 items
@@ -216,26 +226,28 @@ def collect_metrics(run_dir: str | Path) -> pd.DataFrame:
     Returns: DataFrame with Dispatch_ID
     """
     
-    run_dir = Path(run_dir)
+
+    if not (run_dir / "pmc_perf.csv").exists():
+        raise RuntimeError("pmc_perf.csv not found")
 
     # ---- Basic tables ----
+
     df = pd.read_csv(run_dir / "pmc_perf.csv")
-    sysinfo   = pd.read_csv(run_dir / "sysinfo.csv")
-    roofline  = pd.read_csv(run_dir / "roofline.csv")   # Only uses wave_size=64 constant, can skip reading
+    # sysinfo   = pd.read_csv(run_dir / "sysinfo.csv")  # Not used for now
+    # roofline  = pd.read_csv(run_dir / "roofline.csv")   # Time consuming to generate, skip for now
 
-    raw_pmc_dict = {}
+    df["duration_s"] = (df.End_Timestamp - df.Start_Timestamp) * 1e-9   # ns → s
+    total_time_spent_s = df["duration_s"].sum()
 
-    for key, value in rocprof_pmc_column_desc.items():
-        tmp_key = value
-        tmp_value = df[key].iloc[0]
-        if isinstance(tmp_value, (np.generic, np.ndarray)):
-            tmp_value = tmp_value.item()
-        raw_pmc_dict[tmp_key] = tmp_value
 
-    df["raw_pmc_str"] = str(raw_pmc_dict)
+    # Only profile custom kernels
+    mask = ~df["Kernel_Name"].astype(str).str.startswith('__amd')
+    if mask.any():
+        df = df[mask].reset_index(drop=True)
+
+    df["raw_pmc_str"] = df.apply(make_raw_pmc_str, axis=1)
 
     # ---- Core fusion ----
-    df["duration_s"] = (df.End_Timestamp - df.Start_Timestamp) * 1e-9   # ns → s
     wave = 64                                                           # AMD fixed
 
     # ---- (1) Estimate total FLOPs (including multiple precisions) ----
@@ -250,10 +262,10 @@ def collect_metrics(run_dir: str | Path) -> pd.DataFrame:
         (df.SQ_INSTS_VALU_ADD_F64 + df.SQ_INSTS_VALU_MUL_F64) * wave +
         df.SQ_INSTS_VALU_FMA_F64 * wave * 2 +
         # MFMA operations (Matrix Fused Multiply-Add)
-        df.SQ_INSTS_VALU_MFMA_MOPS_F16 * 16 +  # F16 MFMA typically 16 ops per instruction
-        df.SQ_INSTS_VALU_MFMA_MOPS_BF16 * 16 + # BF16 MFMA typically 16 ops per instruction  
-        df.SQ_INSTS_VALU_MFMA_MOPS_F32 * 4 +   # F32 MFMA typically 4 ops per instruction
-        df.SQ_INSTS_VALU_MFMA_MOPS_F64 * 1     # F64 MFMA typically 1 op per instruction
+        df.SQ_INSTS_VALU_MFMA_MOPS_F16 * 512 +  # F16 MFMA typically 512 ops per instruction
+        df.SQ_INSTS_VALU_MFMA_MOPS_BF16 * 512 + # BF16 MFMA typically 512 ops per instruction  
+        df.SQ_INSTS_VALU_MFMA_MOPS_F32 * 512 +  # F32 MFMA typically 512 ops per instruction
+        df.SQ_INSTS_VALU_MFMA_MOPS_F64 * 512    # F64 MFMA typically 512 ops per instruction
     )
 
     # ---- (2) Bytes: L1 / L2 / HBM ----
@@ -294,4 +306,14 @@ def collect_metrics(run_dir: str | Path) -> pd.DataFrame:
     df["L2-Fabric Read BW"]  = df.TCP_TCC_READ_REQ_sum  * 64 / df.duration_s / 1e9  # 64-byte cache lines
     df["L2-Fabric Write BW"] = df.TCP_TCC_WRITE_REQ_sum * 64 / df.duration_s / 1e9  # 64-byte cache lines
 
-    return df[["raw_pmc_str"] + list(DEFAULT_WEIGHTS.keys())]
+    df = df[["raw_pmc_str", "Kernel_Name", "duration_s"] + list(DEFAULT_WEIGHTS.keys())]
+
+    df_dict = {}
+    for _, row in df.iterrows():
+        row_dict = row.to_dict()
+        kernel_name = row_dict.pop("Kernel_Name")
+        df_dict[kernel_name] = row_dict
+    
+    df_dict["avg_us"] = total_time_spent_s * 1e6 # including all dispatchs
+
+    return df_dict

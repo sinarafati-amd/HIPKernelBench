@@ -99,24 +99,28 @@ class Executor:
         print("Running profiling...")
 
         profile_cmd = [
-            "rocprof-compute", "profile", "-n", "kernelgen", "--roof-only", "--", out_name
+            "rocprof-compute", "profile", "-n", "kernelgen", "--path", "profile_output", "--no-roof", \
+                "--join-type", "kernel", "--", out_name
         ]
         try:
-            result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ)
+            result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ, cwd=temp_dir)
         except Exception as e:
             print(f"Profiling failed. Error: {e}")
             log.append({"event": "profiling_error", "stdout": e.output, "stderr": e.stderr})
             raise RuntimeError(e.output)
         
         
-        print("Profiling successful!")
-        
         # Check if profiling files were created
-        run_dir = temp_dir / "workloads" / "kernelgen" / "MI300"
-        if not run_dir.exists():
+        temp_dir = Path(temp_dir)
+        profile_ouput_dir = temp_dir / "profile_output"
+        if not profile_ouput_dir.exists():
+            print(f"Profiling output directory not found: {profile_ouput_dir}")
             raise RuntimeError("Profiling output directory not found")
         
         # Collect metrics using existing function
-        metrics = collect_metrics(run_dir)
-        
-        return metrics
+        metrics_dict = collect_metrics(profile_ouput_dir)
+
+        log.append({"event": "execution_stats", **metrics_dict})
+        print("Profiling successful!")
+
+        return metrics_dict, None, hip_file
