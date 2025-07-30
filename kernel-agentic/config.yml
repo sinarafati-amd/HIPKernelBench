@@ -5,110 +5,96 @@ Pipeline:
   online_search: false
   cheat_sheet: true
   omnivise: false
-  kernel_lang: hip  # Options: hip, cuda, triton
-  enable_correctness: false 
+  kernel_lang: hip # Options: hip, cuda, triton
+  enable_correctness: false
   help_injection: false
-  mode: kernel2kernel  # Options: pytorch2kernel, kernel2kernel
+  mode: kernel2kernel # Options: pytorch2kernel, kernel2kernel
   search:
     enabled: true
-    method: genetic         # bayes | genetic
-    patience: 6             # for genetic
-    max_trials: 6        # for Bayesian
-    pop: 16               # for GA
+    method: genetic # bayes | genetic
+    patience: 6 # for genetic
+    max_trials: 6 # for Bayesian
+    pop: 16 # for GA
     ngen: 20
-
 openai:
   base_url: https://llm-api.amd.com
-  api_key:  fe76c012dd51448cb0ec5f1e86c298a9                       
-  api_version: 2024-02-01 
+  api_key: fe76c012dd51448cb0ec5f1e86c298a9
+  api_version: 2024-02-01
   embedding_api_version: 2024-02-01
-  model_name: GPT-4o  # default model for agents not explicitly configured
-  embedding_model: Text-Embedding-3-Small  # embedding model for RAG
+  model_name: GPT-4o # default model for agents not explicitly configured
+  embedding_model: Text-Embedding-3-Small # embedding model for RAG
   headers:
-    Ocp-Apim-Subscription-Key: fe76c012dd51448cb0ec5f1e86c298a9      
-    user: sirafati       
+    Ocp-Apim-Subscription-Key: fe76c012dd51448cb0ec5f1e86c298a9
+    user: sirafati
   temperature: 0.1
   public_api_key: null
-  
   # Agent-specific model configurations
   agent_models:
     torch_analyser:
-      api_version: 2024-02-01 
+      api_version: 2024-02-01
       model_name: GPT-4o
       temperature: 0.01
     kernel_generator:
       api_version: 2024-12-01-preview
       model_name: Claude-4
       temperature: 0.3
-
 claude:
-  timeout: 120        # Timeout in seconds for Claude API calls
-  max_retries: 3      # Number of retry attempts on timeout/server errors
+  timeout: 120 # Timeout in seconds for Claude API calls
+  max_retries: 3 # Number of retry attempts on timeout/server errors
   retry_delay: 1
-
 gpu_specs:
   arch: null
   wavefront: null
   cucount: null
   shared_mem: null
-
 eval:
   atol: 1e-1 #absolute-error threshold
   n_trial: 3
-
 stopping:
-  min_iters: 5          # never exit earlier than this
-  max_iters: 10          # absolute cap (safety valve)
-  target_speedup: 1.5   # stop if speedup ≥ 2× baseline
+  min_iters: 5 # never exit earlier than this
+  max_iters: 10 # absolute cap (safety valve)
+  target_speedup: 1.5 # stop if speedup ≥ 2× baseline
   min_improvement: 0.05 # ε → need ≥5 % latency drop to count as “better”
-  patience: 4           # end if no ε-better for these many iterations
-  max_failures: 4       # bail if compile/run failed this many times in a row
-  
+  patience: 4 # end if no ε-better for these many iterations
+  max_failures: 4 # bail if compile/run failed this many times in a row
 hip:
   gpu_arch: gfx942 # Target GPU architecture (e.g., gfx942 for MI300X)
-  block_size: 256      
+  block_size: 256
   n_samples: 1
-
 # CUDA configuration (used when kernel_lang: cuda)
 cuda:
-  gpu_arch: sm_75      # Target compute capability 
-  block_size: 256      
+  gpu_arch: sm_75 # Target compute capability 
+  block_size: 256
   n_samples: 1
-
 # Triton configuration (used when kernel_lang: triton)  
 triton:
-  block_size: 256      
+  block_size: 256
   n_samples: 1
-  
 rag:
   default_mode: text # text multimodal
   chunk_size: 1024
   n_neighbors: 8
-  min_similarity: 0.7  # cosine floor [‑1 … 1]
+  min_similarity: 0.7 # cosine floor [‑1 … 1]
   # Language-specific vector stores (automatically selected based on kernel_lang)
   # hip:    vector_store/hip/
   # cuda:   vector_store/cuda/
   # triton: vector_store/triton/
   top_k: 3
-  mmr_lambda: 0.6                 # 1.0 = only relevance, 0.0 = only diversity
-
-
+  mmr_lambda: 0.6 # 1.0 = only relevance, 0.0 = only diversity
 logging:
   history_file: logs/generation_history.jsonl
   log_level: INFO
-
 training:
-  lora:                
+  lora:
     base_model: openlm-research/open_llama_7b
     r: 16
     alpha: 32
     target_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]
     epochs: 20
-    huggingface_read: <HF_token>
-  
-  grpo:         
+    huggingface_read: ""
+  grpo:
     base_model: Qwen/Qwen2-0.5B-Instruct
-    num_steps: 800       
+    num_steps: 800
     ppo_epochs: 4
     mini_batch_size: 4
     grad_acc_steps: 2
@@ -118,26 +104,22 @@ training:
     vf_coef: 0.1
     cliprange_value: 0.2
     lr: 1e-5
-    use_8bit: false  
-    use_SFT_model: false   
-    mini_batch_size:       4       # per_device_train_batch_size
-    grad_acc_steps:        4       # gradient_accumulation_steps
-    lr:                    5e-4    # learning_rate
-    max_grad_norm:         1.0     # max_grad_norm
+    use_8bit: false
+    use_SFT_model: false
+    mini_batch_size: 4 # per_device_train_batch_size
+    grad_acc_steps: 4 # gradient_accumulation_steps
+    lr: 5e-4 # learning_rate
+    max_grad_norm: 1.0 # max_grad_norm
     k: 4
-    num_train_epochs:      3       # epochs over the RL dataset
-    max_steps:            -1       # total steps override (-1 = no limit)
-    
-    num_iterations:        1       # μ updates per generation
-    epsilon:               0.2     # clip epsilon low
-    epsilon_high:         null    # clip epsilon high 
-    
-    scale_rewards:        true    # normalize by std(r)? 
-    loss_type:            "bnpo"  # 'bnpo', 'dr_grpo', etc.
-
+    num_train_epochs: 3 # epochs over the RL dataset
+    max_steps: -1 # total steps override (-1 = no limit)
+    num_iterations: 1 # μ updates per generation
+    epsilon: 0.2 # clip epsilon low
+    epsilon_high: null # clip epsilon high 
+    scale_rewards: true # normalize by std(r)? 
+    loss_type: "bnpo" # 'bnpo', 'dr_grpo', etc.
 search:
   max_results: 5
-
 occupancy:
   enforce_fit: true
 bandit:
