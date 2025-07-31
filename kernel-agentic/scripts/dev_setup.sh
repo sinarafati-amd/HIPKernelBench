@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+sudo apt-get install locales
+sudo locale-gen en_US.UTF-8
+sudo update-locale LANG=en_US.UTF-8
+
+
 # Set hf 
 echo "[INFO] Please enter your Hugging Face token:"
 read -s _TOKEN
@@ -139,7 +144,6 @@ echo "[INFO] uv installed, version: $(uv --version)"
 if [ ! -d ".venv" ]; then
     uv venv .venv
 
-
     source .venv/bin/activate
     # Install ROCm Support PyTorch, and other dependencies
     echo "[INFO] Installing PyTorch ROCm dependencies..."
@@ -152,6 +156,8 @@ if [ ! -d ".venv" ]; then
 
 else
     echo "[INFO] .venv already exists, skipping creation."
+    uv pip install -r requirements.txt --no-cache-dir
+    uv pip install --index-url https://download.pytorch.org/whl/rocm6.3 -r pytorch_rocm.txt --no-cache-dir
 fi
 
 
@@ -177,6 +183,7 @@ expect "Add token as git credential? (Y/n)"
 send "n\r"
 expect eof
 EOF
+
 
 # Check if tmux session "omniwise_session" exists
 echo "[INFO] Checking for existing tmux session 'omniwise_session'..."

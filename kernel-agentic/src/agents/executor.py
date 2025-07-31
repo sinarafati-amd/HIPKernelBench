@@ -97,13 +97,19 @@ class Executor:
         
         # Run profiling
         print("Running profiling...")
-
+        profile_output_path = os.path.join(temp_dir, "profile_output")
+        os.makedirs(profile_output_path, exist_ok=True)
         profile_cmd = [
             "rocprof-compute", "profile", "-n", "kernelgen", "--path", "profile_output", "--no-roof", \
                 "--join-type", "kernel", "--", out_name
         ]
         try:
+            env = os.environ.copy()
+            env['LC_ALL'] = 'C'
+            env['LANG'] = 'C'
+            
             result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ, cwd=temp_dir)
+
         except Exception as e:
             print(f"Profiling failed. Error: {e}")
             log.append({"event": "profiling_error", "stdout": e.output, "stderr": e.stderr})
