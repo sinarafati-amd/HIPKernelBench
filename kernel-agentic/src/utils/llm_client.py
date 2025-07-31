@@ -231,8 +231,9 @@ def chat(
     cfg = _load_cfg()
 
     public_api_key = cfg.get("public_api_key", "")
-    if public_api_key:
-        return chat_public(messages, temperature, stream, max_completion_tokens, reasoning_effort, agent_name, **extra)
+    local_llm_enabled = cfg.get("local_llm_enabled", False)
+    if local_llm_enabled or public_api_key:
+        return chat_without_AMD_gateway(messages, temperature, stream, max_completion_tokens, reasoning_effort, agent_name, **extra)
 
     agent_models = cfg.get("agent_models", {})
     agent_config = agent_models.get(agent_name, {}) if agent_name else {}
@@ -273,7 +274,7 @@ def chat(
         return client.chat.completions.create(**params)
 
 
-def chat_public(
+def chat_without_AMD_gateway(
     messages: list[dict[str, str]],
     temperature: float = 0.2,
     stream: bool = False,
@@ -286,11 +287,18 @@ def chat_public(
     Similar to chat(), but uses the public OpenAI API (public_api_key from config.yml). 
     Please use it cautiously. Do not use it for sensitive data.
     """
-    if os.path.exists("config.yml"):
-        api_key = yaml.safe_load(open("config.yml")).get("openai", {}).get("public_api_key")
+
+    cfg = _load_cfg()
+
+    public_api_key = cfg.get("public_api_key", "")
+    local_llm_enabled = cfg.get("local_llm_enabled", False)
+    local_llm_base_url = cfg.get("local_llm_base_url", "")
+
+    if local_llm_enabled:
+        client = openai.OpenAI(api_key="dummy", base_url=local_llm_base_url)
     else:
-        raise RuntimeError("No config.yml found.")
-    client = openai.OpenAI(api_key=api_key)
+        client = openai.OpenAI(api_key=public_api_key)
+
     model_id = extra.get("model", "o3")  # use o3 model by default
     params = {
         "model": model_id,
@@ -317,7 +325,7 @@ if __name__ == "__main__":
         {"role": "user", "content": "What is the capital of France?"},
     ]
     try:
-        response = chat_public(test_messages, temperature=0.1)
+        response = chat_without_AMD_gateway(test_messages, temperature=0.1)
         print("public_chat test response:")
         # Try to print the content of the first choice if available
         if hasattr(response, "choices") and response.choices:
