@@ -106,9 +106,13 @@ post-process:
 
 
 slg-server:
-	docker run -d --ipc=host --cap-add=SYS_PTRACE --network=host --shm-size=32g\
-		--device=/dev/kfd --device=/dev/dri --security-opt seccomp=unconfined \
-		--group-add video --privileged -w /workspace rocm/sgl-dev:v0.4.9.post6-rocm630-mi30x-20250730 \
-		python -m sglang.launch_server --model-path Qwen/Qwen3-Coder-30B-A3B-Instruct --port 30000
-	@echo "Don't forget to set local_llm_enabled: true in config.yml"
-	@echo "SLG server will be running on port 30000, please wait 3 minutes for it to start..."
+	@if ss -ltn | grep ':30000 ' > /dev/null; then \
+		echo "SLG server is already running on port 30000."; \
+	else \
+		docker run -d --ipc=host --cap-add=SYS_PTRACE --network=host --shm-size=32g\
+			--device=/dev/kfd --device=/dev/dri --security-opt seccomp=unconfined \
+			--group-add video --privileged -w /workspace rocm/sgl-dev:v0.4.9.post6-rocm630-mi30x-20250730 \
+			python -m sglang.launch_server --model-path Qwen/Qwen3-Coder-30B-A3B-Instruct --port 30000; \
+		echo "Don't forget to set local_llm_enabled: true in config.yml"; \
+		echo "SLG server will be running on port 30000, please wait 3 minutes for it to start..."; \
+	fi

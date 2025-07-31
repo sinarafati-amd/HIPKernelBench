@@ -18,9 +18,6 @@ else
     echo "[INFO] Token received successfully."
 fi
 
-
-
-
 # Check if wget is installed, if not, install it
 if ! command -v wget &> /dev/null; then
     echo "[INFO] wget not installed, installing now..."
