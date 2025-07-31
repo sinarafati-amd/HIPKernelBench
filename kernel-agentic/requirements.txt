@@ -71,8 +71,4 @@ tabulate
 argparse
 subprocess-run
 pathlib
-shutil
-tempfile
-json
-yaml
 configparser 
