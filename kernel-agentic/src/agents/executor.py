@@ -110,13 +110,6 @@ class Executor:
             
             result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ, cwd=temp_dir)
 
-            if result.returncode != 0:
-                print(f"Profiling failed with return code {result.returncode}")
-                print(f"stdout: {result.stdout}")
-                print(f"stderr: {result.stderr}")
-                log.append({"event": "profiling_error", "stdout": result.stdout, "stderr": result.stderr})
-                raise RuntimeError(f"Profiling failed: {result.stderr}")
-
         except Exception as e:
             print(f"Profiling failed. Error: {e}")
             log.append({"event": "profiling_error", "stdout": e.output, "stderr": e.stderr})
