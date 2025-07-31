@@ -1,11 +1,19 @@
 
-TORCH_FILE_DIR ?= torch_codes
+TORCH_FILE_DIR ?= datasets/torch_example_kernels
 KERNEL_FILE_DIR ?= kernel_codes
 KERNEL_LANG ?= hip
 MODE ?= multimodal
 
+ACTIVATE_VENV_CMD = exec bash -c "source .venv/bin/activate && exec bash"
+
 dev-setup:
+	@echo "Setting up development environment..."
+	sudo usermod -aG render $$USER 
 	bash scripts/dev_setup.sh
+	$(ACTIVATE_VENV_CMD) # please use 'uv pip' instead of 'pip'
+
+act:
+	$(ACTIVATE_VENV_CMD) 
 
 .PHONY: vector-store
 vector-store:
@@ -95,3 +103,12 @@ post-process:
 	fi; \
 	echo "Running post-processing script with input=$(INPUT_DIR) and run-name=$(RUN_NAME)..."; \
 	python src/utils/post_process.py --input "$(INPUT_DIR)" --run-name "$(RUN_NAME)"
+
+
+slg-server:
+	docker run -d --ipc=host --cap-add=SYS_PTRACE --network=host --shm-size=32g\
+		--device=/dev/kfd --device=/dev/dri --security-opt seccomp=unconfined \
+		--group-add video --privileged -w /workspace rocm/sgl-dev:v0.4.9.post6-rocm630-mi30x-20250730 \
+		python -m sglang.launch_server --model-path Qwen/Qwen3-Coder-30B-A3B-Instruct --port 30000
+	@echo "Don't forget to set local_llm_enabled: true in config.yml"
+	@echo "SLG server will be running on port 30000, please wait 3 minutes for it to start..."
