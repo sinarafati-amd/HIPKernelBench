@@ -29,7 +29,7 @@ openai:
   temperature: 0.1
   public_api_key: null
   local_llm_enabled: false  
-  local_llm_base_url: http://127.0.0.1:30000/v1
+  local_llm_base_url: http://127.0.0.1:30001/v1
   # Agent-specific model configurations
   agent_models:
     torch_analyser:

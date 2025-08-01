@@ -296,10 +296,12 @@ def chat_without_AMD_gateway(
 
     if local_llm_enabled:
         client = openai.OpenAI(api_key="dummy", base_url=local_llm_base_url)
+        model_id = "llamas_team_local_llm"
+
     else:
         client = openai.OpenAI(api_key=public_api_key)
-
-    model_id = extra.get("model", "o3")  # use o3 model by default
+        model_id = extra.get("model", "o3")  # use o3 model by default
+        
     params = {
         "model": model_id,
         "messages": messages,

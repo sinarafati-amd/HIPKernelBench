@@ -105,14 +105,30 @@ post-process:
 	python src/utils/post_process.py --input "$(INPUT_DIR)" --run-name "$(RUN_NAME)"
 
 
-slg-server:
-	@if ss -ltn | grep ':30000 ' > /dev/null; then \
-		echo "SLG server is already running on port 30000."; \
+vllm-server:
+	@if ss -ltn | grep ':30001 ' > /dev/null; then \
+		echo "vLLM server is already running on port 30001."; \
 	else \
-		docker run -d --ipc=host --cap-add=SYS_PTRACE --network=host --shm-size=32g\
-			--device=/dev/kfd --device=/dev/dri --security-opt seccomp=unconfined \
-			--group-add video --privileged -w /workspace rocm/sgl-dev:v0.4.9.post6-rocm630-mi30x-20250730 \
-			python -m sglang.launch_server --model-path Qwen/Qwen3-Coder-30B-A3B-Instruct --port 30000; \
+		docker run -d \
+			--ipc=host \
+			--network=host \
+			--privileged \
+			--cap-add=SYS_ADMIN \
+			--cap-add=SYS_PTRACE \
+			--device=/dev/kfd \
+			--device=/dev/dri \
+			--device=/dev/mem \
+			--group-add=render \
+			--security-opt=seccomp=unconfined \
+			rocm/vllm-dev:v0.9.0-rocm6.4 \
+			vllm serve Qwen/Qwen3-Coder-30B-A3B-Instruct \
+			--served-model-name llamas_team_local_llm \
+			--api-key dummy \
+			--port 30001 \
+			--enable-auto-tool-choice \
+			--tool-call-parser hermes \
+			--trust-remote-code
+
 		echo "Don't forget to set local_llm_enabled: true in config.yml"; \
-		echo "SLG server will be running on port 30000, please wait 3 minutes for it to start..."; \
+		echo "vLLM server will be running on port 30001, please wait 3 minutes for it to start..."; \
 	fi
