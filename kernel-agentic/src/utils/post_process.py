@@ -131,7 +131,8 @@ def copy_plots_to_reports(run_name: str, input_folder: str, main_folder: str, co
         # Copy pytorch2kernel plots
         plot_files = [
             'average_baseline_barplot_grouped_log.png',
-            'baseline_density_cleaned.png'
+            'baseline_density_cleaned.png',
+            'kernel_statistics_summary.png'
         ]
     
     # Copy plot files
@@ -814,7 +815,12 @@ def create_entry(run_name: str, config: Dict[str, Any], stats: Dict[str, float],
         'configuration': config_details['summary'],
         'detailed_config': config_details,
         'plot_path': plot_path,
-        'mode': mode
+        'mode': mode,
+        'compilation_rate': stats.get('compilation_rate', 0),
+        'correctness_rate_total': stats.get('correctness_rate_total', 0),
+        'correctness_rate_compiled': stats.get('correctness_rate_compiled', 0),
+        'speedup_rate_total': stats.get('speedup_rate_total', 0),
+        'speedup_rate_compiled': stats.get('speedup_rate_compiled', 0)
     }
     
     # Add additional plot paths if available
@@ -928,6 +934,21 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
             mode_display = "K2K" if entry.get('mode') == 'kernel2kernel' else "P2K"
             content += f"| {rank}| {run_name} | {entry['date_version']} | {mode_display} | {entry['overall_speedup']:.2f}x | {entry['success_rate']:.1f}% | {entry['avg_torch_time']:.1f} | {entry['avg_hip_time']:.1f} | {entry['total_kernels']} | {entry['configuration']} |\n"
     
+
+    p2k_rank = 1
+    for run_name, entry in sorted_entries:
+        # Only show detailed stats for pytorch2kernel runs that have the new statistics
+        if (run_name and run_name.strip() and 
+            entry.get('mode') != 'kernel2kernel' and
+            'compilation_rate' in entry):
+            
+            content += f"| {p2k_rank} | {run_name} | {entry.get('compilation_rate', 0):.1f}% | {entry.get('correctness_rate_total', 0):.1f}% | {entry.get('correctness_rate_compiled', 0):.1f}% | {entry.get('speedup_rate_total', 0):.1f}% | {entry.get('speedup_rate_compiled', 0):.1f}% |\n"
+            p2k_rank += 1
+    
+    if p2k_rank == 1:  # No P2K runs with detailed stats
+        content += "*No PyTorch-to-Kernel runs with detailed statistics available yet.*\n"
+    
+    
     content += "\n## 📈 Performance Charts\n\n"
     
     # Show performance charts for ALL runs with valid data
@@ -965,6 +986,14 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
                     relative_density_path = relative_density_path.replace('kernel-agentic/', '')
                     content += f"#### Performance Distribution\n"
                     content += f"![{run_name} Density Plot]({relative_density_path})\n\n"
+                
+                # Add statistics plot if available
+                stats_file = 'kernel_statistics_summary.png'
+                if 'copied_files' in entry and stats_file in entry['copied_files']:
+                    relative_stats_path = os.path.relpath(entry['copied_files'][stats_file], os.path.dirname(evalboard_path))
+                    relative_stats_path = relative_stats_path.replace('kernel-agentic/', '')
+                    content += f"#### Kernel Generation Statistics\n"
+                    content += f"![{run_name} Statistics Summary]({relative_stats_path})\n\n"
             
             chart_count += 1
     
@@ -1096,7 +1125,8 @@ Welcome to the HIP Kernel Benchmark evalboard! This page tracks the performance 
     with open(evalboard_path, 'w') as f:
         f.write(content)
 
-def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: List[float]) -> Dict[str, float]:
+def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: List[float], 
+                         kernel_stats: Dict[str, Any] = None) -> Dict[str, float]:
     """Generate summary statistics from baseline and best times."""
     if not list_baselines_flat or not list_best_flat:
         return {
@@ -1105,7 +1135,12 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
             'success_rate': 0.0,
             'overall_speedup': 0.0,
             'avg_torch_time': 0.0,
-            'avg_hip_time': 0.0
+            'avg_hip_time': 0.0,
+            'compilation_rate': 0.0,
+            'correctness_rate_total': 0.0,
+            'correctness_rate_compiled': 0.0,
+            'speedup_rate_total': 0.0,
+            'speedup_rate_compiled': 0.0
         }
     
     total_kernels = len(list_baselines_flat)
@@ -1114,6 +1149,7 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
     
     # Calculate harmonic mean speedup (only for successful kernels)
     valid_speedups = []
+    speedup_count = 0  # Count kernels with speedup > 1.0
     for i in range(len(list_baselines_flat)):
         if (i < len(list_best_flat) and 
             list_best_flat[i] is not None and 
@@ -1122,6 +1158,8 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
             list_baselines_flat[i] > 0):
             speedup = list_baselines_flat[i] / list_best_flat[i]
             valid_speedups.append(speedup)
+            if speedup > 1.0:
+                speedup_count += 1
     
     if valid_speedups:
         # Harmonic mean of speedups
@@ -1136,13 +1174,28 @@ def generate_summary_stats(list_baselines_flat: List[float], list_best_flat: Lis
     avg_torch_time = np.mean(valid_baselines) if valid_baselines else 0.0
     avg_hip_time = np.mean(valid_best_times) if valid_best_times else 0.0
     
+    # Calculate additional statistics if provided
+    compiled_kernels = kernel_stats.get('compiled_kernels', 0) if kernel_stats else 0
+    correct_kernels = kernel_stats.get('correct_kernels', 0) if kernel_stats else 0
+    
+    compilation_rate = (compiled_kernels / total_kernels) * 100 if total_kernels > 0 else 0
+    correctness_rate_total = (correct_kernels / total_kernels) * 100 if total_kernels > 0 else 0
+    correctness_rate_compiled = (correct_kernels / compiled_kernels) * 100 if compiled_kernels > 0 else 0
+    speedup_rate_total = (speedup_count / total_kernels) * 100 if total_kernels > 0 else 0
+    speedup_rate_compiled = (speedup_count / compiled_kernels) * 100 if compiled_kernels > 0 else 0
+    
     return {
         'total_kernels': total_kernels,
         'successful_kernels': successful_kernels,
         'success_rate': success_rate,
         'overall_speedup': harmonic_mean_speedup,
         'avg_torch_time': avg_torch_time,
-        'avg_hip_time': avg_hip_time
+        'avg_hip_time': avg_hip_time,
+        'compilation_rate': compilation_rate,
+        'correctness_rate_total': correctness_rate_total,
+        'correctness_rate_compiled': correctness_rate_compiled,
+        'speedup_rate_total': speedup_rate_total,
+        'speedup_rate_compiled': speedup_rate_compiled
     }
 
 
@@ -1192,12 +1245,25 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
     list_best = [[] for _ in range(len(level_data))]
     list_fails = [[0] for _ in range(len(level_data))]
 
+    # Additional tracking for new statistics
+    compiled_kernels = 0  # Kernels that have .hip files
+    correct_kernels = 0   # Kernels that passed correctness check
+    speedup_kernels = 0   # Kernels with speedup > 1.0
+    total_kernels_processed = 0
+    
+    # Per-group tracking for detailed statistics
+    group_compiled = [0 for _ in range(len(level_data))]  # Compiled kernels per group
+    group_correct = [0 for _ in range(len(level_data))]   # Correct kernels per group
+    group_speedup = [0 for _ in range(len(level_data))]   # Speedup kernels per group
+    group_total = [0 for _ in range(len(level_data))]     # Total kernels per group
+
     folders = os.listdir(input)
     total_count = 0
     for folder in folders:
         if folder.endswith('.jsonl') or folder.endswith('.png') or folder.endswith('.json'):
             continue
 
+        total_kernels_processed += 1
         name = folder.split('_', 1)[-1].split('.py', 1)[0]
         files = os.listdir(os.path.join(input, folder))
 
@@ -1211,9 +1277,18 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
             data = json.load(f)
         baseline_time = data['lat_us']
         
-        cpp_files = [f for f in os.listdir(os.path.join(input,folder)) if f.endswith('.cpp')]
-        Failed =not (len(cpp_files) > 0)
+        # Check for compilation - look for .cpp files (indicates successful kernel generation)
+        cpp_files = [f for f in os.listdir(os.path.join(input, folder)) if f.endswith('.cpp')]
+        has_compiled = len(cpp_files) > 0
+        if has_compiled:
+            compiled_kernels += 1
+        
+        Failed = not has_compiled
 
+        # Track correctness and performance from generation history
+        has_passed_correctness = False
+        best_hip_time = None
+        
         jsonl_path = os.path.join(input,folder, "generation_history.jsonl")
         if os.path.isfile(jsonl_path):
             best_sft_entry = None
@@ -1226,8 +1301,12 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
                         entry = json.loads(line)
                         subfolder_entries.append(entry)
                         
-                        # Check if this is an sft_ sample event
+                        # Check for correctness validation
                         event = entry.get("event", "")
+                        if event == "correctness_check" and entry.get("status") == "passed":
+                            has_passed_correctness = True
+                        
+                        # Check if this is an sft_ sample event
                         if event in ["sft_sample_phase1", "sft_sample_hpo"]:
                             # Get hip_us for comparison
                             current_hip_us = entry.get("hip_us")
@@ -1236,17 +1315,41 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
                                 if best_sft_entry is None or current_hip_us < smallest_hip_us:
                                     best_sft_entry = entry
                                     smallest_hip_us = current_hip_us
+                                    best_hip_time = current_hip_us
                                     
                     except json.JSONDecodeError as e:
                         print(f"Skipping invalid JSON in {jsonl_path}: {e}")
+        
+        # Count correctness (only for compiled kernels)
+        if has_compiled and has_passed_correctness:
+            correct_kernels += 1
+        
+        # Count speedup (only if we have valid times and compilation was successful)
+        # Note: A kernel can have speedup even if it fails correctness checks
+        if has_compiled and best_hip_time is not None and baseline_time > 0 and best_hip_time > 0:
+            speedup = baseline_time / best_hip_time
+            if speedup > 1.0:
+                speedup_kernels += 1
 
         # Match name to group and insert baseline_time at the correct index
+        group_index = None
         for group, names in level_data.items():
             if name in names:
                 group_index = group_name_to_index[group]
                 list_baselines[group_index].append(baseline_time)
                 list_best[group_index].append(baseline_time if best_sft_entry is None else best_sft_entry['hip_us'])
                 list_fails[group_index][0] += 1 if Failed else 0
+                
+                # Update per-group statistics
+                group_total[group_index] += 1
+                if has_compiled:
+                    group_compiled[group_index] += 1
+                if has_compiled and has_passed_correctness:
+                    group_correct[group_index] += 1
+                if has_compiled and best_hip_time is not None and baseline_time > 0 and best_hip_time > 0:
+                    speedup = baseline_time / best_hip_time
+                    if speedup > 1.0:
+                        group_speedup[group_index] += 1
                 break
         else:
             print(f"Name {name} not found in any group")
@@ -1286,10 +1389,28 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
     # Generate plots
     generate_performance_plots(df, input)
     
+    # Generate new statistics visualization
+    kernel_stats = {
+        'compiled_kernels': compiled_kernels,
+        'correct_kernels': correct_kernels,
+        'total_kernels': total_kernels_processed
+    }
+    
+    # Prepare group statistics for visualization
+    group_stats = {
+        'group_names': group_names,
+        'group_total': group_total,
+        'group_compiled': group_compiled,
+        'group_correct': group_correct,
+        'group_speedup': group_speedup
+    }
+    
+    generate_kernel_statistics_plot(kernel_stats, compiled_kernels, correct_kernels, speedup_kernels, input, group_stats)
+    
     # Generate summary statistics for evalboard
     list_baselines_flat = [time for sublist in list_baselines for time in sublist]
     list_best_flat = [time for sublist in list_best for time in sublist]
-    stats = generate_summary_stats(list_baselines_flat, list_best_flat)
+    stats = generate_summary_stats(list_baselines_flat, list_best_flat, kernel_stats)
     
     # Load config for evalboard update
     config_path = os.path.join(os.path.dirname(input), "config.yml")
@@ -1308,16 +1429,52 @@ def process_pytorch2kernel_mode(input, grouping_file=None, level='level_1'):
     # Update evalboard (this will copy plots to reports folder)
     update_evalboard(run_name, config, stats, input, main_folder, mode='pytorch2kernel')
     
-    print(f"\n   Run Summary for {run_name}:")
-    print(f"   Total Kernels: {stats['total_kernels']}")
-    print(f"   Successful Kernels: {stats['successful_kernels']}")
-    print(f"   Success Rate: {stats['success_rate']:.1f}%")
-    print(f"   Overall Speedup: {stats['overall_speedup']:.2f}x")
-    print(f"   Average Torch Time: {stats['avg_torch_time']:.1f} μs")
-    print(f"   Average HIP Time: {stats['avg_hip_time']:.1f} μs")
-    print(f"\n  evalboard updated at: {os.path.join(main_folder, 'evalboard.md')}")
-    print(f"  Performance charts stored in: {os.path.join(main_folder, 'reports', run_name)}")
-    print(f"  Prompts archived in: {os.path.join(main_folder, 'reports', run_name, 'prompts')}")
+    print(f"\n Run Summary for {run_name}:")
+    print(f"    Total Kernels: {stats['total_kernels']}")
+    print(f"    Successful Kernels: {stats['successful_kernels']}")
+    print(f"    Success Rate: {stats['success_rate']:.1f}%")
+    print(f"    Overall Speedup: {stats['overall_speedup']:.2f}x")
+    print(f"    Average Torch Time: {stats['avg_torch_time']:.1f} μs")
+    print(f"    Average HIP Time: {stats['avg_hip_time']:.1f} μs")
+    print(f"\n Detailed Statistics:")
+    print(f"    Compilation Rate: {stats['compilation_rate']:.1f}% ({compiled_kernels}/{total_kernels_processed} kernels)")
+    print(f"    Correctness Rate (Total): {stats['correctness_rate_total']:.1f}% ({correct_kernels}/{total_kernels_processed} kernels)")
+    print(f"    Correctness Rate (Compiled): {stats['correctness_rate_compiled']:.1f}% ({correct_kernels}/{compiled_kernels} compiled kernels)")
+    print(f"    Speedup Rate (Total): {stats['speedup_rate_total']:.1f}% ({speedup_kernels}/{total_kernels_processed} kernels)")
+    print(f"    Speedup Rate (Compiled): {stats['speedup_rate_compiled']:.1f}% ({speedup_kernels}/{compiled_kernels} compiled kernels)")
+    
+    # Add per-group statistics summary
+    print(f"\n📊 Per-Group Statistics:")
+    print(f"{'Group':<25} {'Total':<6} {'Compiled':<9} {'Correct':<8} {'Speedup':<7} {'Comp%':<6} {'Corr%':<6} {'Speed%':<7} {'Avg Speedup':<11}")
+    print("-" * 105)
+    for i, group_name in enumerate(group_names):
+        if group_total[i] > 0:  # Only show groups with kernels
+            cleaned_name = group_name.split('_', 1)[-1] if '_' in group_name else group_name
+            cleaned_name = cleaned_name[:23] if len(cleaned_name) > 23 else cleaned_name  # Truncate long names
+            
+            comp_rate = (group_compiled[i] / group_total[i]) * 100
+            corr_rate = (group_correct[i] / group_total[i]) * 100 if group_total[i] > 0 else 0
+            speed_rate = (group_speedup[i] / group_total[i]) * 100 if group_total[i] > 0 else 0
+            
+            # Calculate average speedup for this group
+            group_speedup_ratio = 0.0
+            if len(list_baselines[i]) > 0 and len(list_best[i]) > 0:
+                valid_speedups = []
+                for j in range(len(list_baselines[i])):
+                    if (j < len(list_best[i]) and 
+                        list_best[i][j] is not None and list_best[i][j] > 0 and
+                        list_baselines[i][j] is not None and list_baselines[i][j] > 0):
+                        speedup = list_baselines[i][j] / list_best[i][j]
+                        valid_speedups.append(speedup)
+                if valid_speedups:
+                    group_speedup_ratio = np.mean(valid_speedups)
+            
+            print(f"{cleaned_name:<25} {group_total[i]:<6} {group_compiled[i]:<9} {group_correct[i]:<8} {group_speedup[i]:<7} {comp_rate:<6.1f} {corr_rate:<6.1f} {speed_rate:<7.1f} {group_speedup_ratio:<11.2f}x")
+    
+    print(f"\n Output Locations:")
+    print(f"    Evalboard updated at: {os.path.join(main_folder, 'evalboard.md')}")
+    print(f"    Performance charts stored in: {os.path.join(main_folder, 'reports', run_name)}")
+    print(f"    Prompts archived in: {os.path.join(main_folder, 'reports', run_name, 'prompts')}")
 
 
 def generate_performance_plots(df: pd.DataFrame, input_folder: str) -> None:
@@ -1479,7 +1636,7 @@ def generate_density_plot(df: pd.DataFrame, input_folder: str) -> None:
         # Add annotations for best performers
         top_performers = df.nlargest(3, 'Speedup')
         for i, (_, row) in enumerate(top_performers.iterrows()):
-            plt.annotate(f'{row["Group"][:15]}...\n{row["Speedup"]:.1f}x', 
+            plt.annotate(f'{row["Group"][:]}...\n{row["Speedup"]:.1f}x', 
                         xy=(row['Speedup'], kde(row['Speedup'])[0]), 
                         xytext=(20, 20 + i*30), textcoords='offset points',
                         bbox=dict(boxstyle='round,pad=0.3', fc='yellow', alpha=0.7),
@@ -1497,6 +1654,206 @@ def generate_density_plot(df: pd.DataFrame, input_folder: str) -> None:
     plt.close()
     
     print(f"📈 Density plot saved: {output_path}")
+
+def generate_kernel_statistics_plot(kernel_stats: Dict[str, Any], compiled_kernels: int, 
+                                  correct_kernels: int, speedup_kernels: int, input_folder: str,
+                                  group_stats: Dict[str, Any] = None) -> None:
+    """Generate a comprehensive statistics visualization showing compilation, correctness, and speedup rates."""
+    total_kernels = kernel_stats['total_kernels']
+    
+    # Determine figure layout based on whether we have group stats
+    if group_stats and len(group_stats.get('group_names', [])) > 0:
+        # Create figure with 2x3 layout for group breakdown
+        fig = plt.figure(figsize=(20, 16))
+        gs = gridspec.GridSpec(3, 2, height_ratios=[1, 1, 1.2], hspace=0.3, wspace=0.3)
+        
+        # Main statistics plots (top row)
+        ax1 = fig.add_subplot(gs[0, 0])  # Compilation Rate
+        ax2 = fig.add_subplot(gs[0, 1])  # Correctness Rate
+        ax3 = fig.add_subplot(gs[1, 0])  # Speedup Rate  
+        ax4 = fig.add_subplot(gs[1, 1])  # Overall Summary Funnel
+        
+        # Group breakdown (bottom row - spans both columns)
+        ax5 = fig.add_subplot(gs[2, :])  # Per-group statistics
+        
+        fig.suptitle('Kernel Generation & Optimization Statistics - Overall and Per-Group Analysis', 
+                    fontsize=18, fontweight='bold')
+    else:
+        # Create figure with original 2x2 layout
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle('Kernel Generation & Optimization Statistics', fontsize=16, fontweight='bold')
+    
+    # 1. Compilation Rate (Top Left)
+    compilation_rate = (compiled_kernels / total_kernels) * 100 if total_kernels > 0 else 0
+    failed_compilation = total_kernels - compiled_kernels
+    
+    # Pie chart for compilation
+    labels = ['Compiled Successfully', 'Failed Compilation']
+    sizes = [compiled_kernels, failed_compilation]
+    colors = ['#2ecc71', '#e74c3c']
+    explode = (0.05, 0)  # explode the first slice
+    
+    wedges, texts, autotexts = ax1.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%',
+                                      explode=explode, shadow=True, startangle=90)
+    ax1.set_title(f'Compilation Success Rate\n({compiled_kernels}/{total_kernels} kernels)', 
+                  fontsize=12, fontweight='bold')
+    
+    # Enhance text
+    for autotext in autotexts:
+        autotext.set_color('white')
+        autotext.set_fontweight('bold')
+        autotext.set_fontsize(10)
+    
+    # 2. Correctness Rate (Top Right) - Two perspectives
+    correctness_rate_total = (correct_kernels / total_kernels) * 100 if total_kernels > 0 else 0
+    correctness_rate_compiled = (correct_kernels / compiled_kernels) * 100 if compiled_kernels > 0 else 0
+    
+    categories = ['Total Kernels', 'Compiled Kernels']
+    rates = [correctness_rate_total, correctness_rate_compiled]
+    bars = ax2.bar(categories, rates, color=['#3498db', '#9b59b6'], alpha=0.8, edgecolor='black')
+    
+    ax2.set_ylabel('Correctness Rate (%)', fontsize=11, fontweight='bold')
+    ax2.set_title(f'Correctness Check Results\n({correct_kernels} kernels passed)', 
+                  fontsize=12, fontweight='bold')
+    ax2.set_ylim(0, 100)
+    ax2.grid(True, alpha=0.3)
+    
+    # Add value labels on bars
+    for bar, rate in zip(bars, rates):
+        height = bar.get_height()
+        ax2.annotate(f'{rate:.1f}%',
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontweight='bold')
+    
+    # 3. Speedup Rate (Bottom Left) - Two perspectives
+    speedup_rate_total = (speedup_kernels / total_kernels) * 100 if total_kernels > 0 else 0
+    speedup_rate_compiled = (speedup_kernels / compiled_kernels) * 100 if compiled_kernels > 0 else 0
+    
+    categories = ['Total Kernels', 'Compiled Kernels']
+    rates = [speedup_rate_total, speedup_rate_compiled]
+    bars = ax3.bar(categories, rates, color=['#f39c12', '#e67e22'], alpha=0.8, edgecolor='black')
+    
+    ax3.set_ylabel('Speedup Rate (%)', fontsize=11, fontweight='bold')
+    ax3.set_title(f'Kernels with Speedup > 1.0x\n({speedup_kernels} kernels achieved speedup)', 
+                  fontsize=12, fontweight='bold')
+    ax3.set_ylim(0, 100)
+    ax3.grid(True, alpha=0.3)
+    
+    # Add value labels on bars
+    for bar, rate in zip(bars, rates):
+        height = bar.get_height()
+        ax3.annotate(f'{rate:.1f}%',
+                    xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3),  # 3 points vertical offset
+                    textcoords="offset points",
+                    ha='center', va='bottom', fontweight='bold')
+    
+    # 4. Overall Summary Funnel (Bottom Right)
+    funnel_data = [
+        ('Total Kernels', total_kernels, '#34495e'),
+        ('Compiled', compiled_kernels, '#2ecc71'),
+        ('Correct', correct_kernels, '#3498db'),
+        ('Speedup > 1.0x', speedup_kernels, '#f39c12')
+    ]
+    
+    # Create funnel-like visualization
+    y_positions = range(len(funnel_data))
+    widths = [data[1] for data in funnel_data]
+    colors = [data[2] for data in funnel_data]
+    labels = [f"{data[0]}\n{data[1]} ({data[1]/total_kernels*100:.1f}%)" for data in funnel_data]
+    
+    bars = ax4.barh(y_positions, widths, color=colors, alpha=0.8, edgecolor='black')
+    ax4.set_yticks(y_positions)
+    ax4.set_yticklabels([data[0] for data in funnel_data])
+    ax4.set_xlabel('Number of Kernels', fontsize=11, fontweight='bold')
+    ax4.set_title('Processing Funnel\n(From Generation to Speedup)', fontsize=12, fontweight='bold')
+    ax4.grid(True, alpha=0.3, axis='x')
+    
+    # Add value labels on bars
+    for i, (bar, label) in enumerate(zip(bars, labels)):
+        width = bar.get_width()
+        ax4.annotate(f'{width} ({width/total_kernels*100:.1f}%)',
+                    xy=(width, bar.get_y() + bar.get_height() / 2),
+                    xytext=(5, 0),  # 5 points horizontal offset
+                    textcoords="offset points",
+                    ha='left', va='center', fontweight='bold')
+    
+    # 5. Per-Group Statistics (Bottom - Full Width) - Only if group stats are available
+    if group_stats and len(group_stats.get('group_names', [])) > 0:
+        group_names = group_stats['group_names']
+        group_total = group_stats['group_total']
+        group_compiled = group_stats['group_compiled']
+        group_correct = group_stats['group_correct']
+        group_speedup = group_stats['group_speedup']
+        
+        # Filter out groups with no kernels 
+        valid_groups = [(i, name) for i, name in enumerate(group_names) if group_total[i] > 0]
+        # Sort by total kernels (descending)  
+        valid_groups.sort(key=lambda x: group_total[x[0]], reverse=True)
+        valid_groups = valid_groups[:]   
+        
+        if valid_groups:
+            indices = [x[0] for x in valid_groups]
+            display_names = [x[1].split('_', 1)[-1] if '_' in x[1] else x[1] for x in valid_groups]
+            # Truncate long names
+            display_names = [name[:] + '...' if len(name) > 18 else name for name in display_names]
+            
+            # Calculate rates for selected groups
+            comp_rates = [(group_compiled[i] / group_total[i]) * 100 if group_total[i] > 0 else 0 for i in indices]
+            corr_rates = [(group_correct[i] / group_total[i]) * 100 if group_total[i] > 0 else 0 for i in indices]
+            speed_rates = [(group_speedup[i] / group_total[i]) * 100 if group_total[i] > 0 else 0 for i in indices]
+            
+            x_pos = np.arange(len(display_names))
+            width = 0.25
+            
+            # Create grouped bar chart
+            bars1 = ax5.bar(x_pos - width, comp_rates, width, label='Compilation Rate', 
+                           color='#2ecc71', alpha=0.8, edgecolor='black', linewidth=0.5)
+            bars2 = ax5.bar(x_pos, corr_rates, width, label='Correctness Rate', 
+                           color='#3498db', alpha=0.8, edgecolor='black', linewidth=0.5)
+            bars3 = ax5.bar(x_pos + width, speed_rates, width, label='Speedup Rate', 
+                           color='#f39c12', alpha=0.8, edgecolor='black', linewidth=0.5)
+            
+            ax5.set_xlabel('Kernel Groups (Top Total Kernels)', fontsize=12, fontweight='bold')
+            ax5.set_ylabel('Success Rate (%)', fontsize=12, fontweight='bold')
+            ax5.set_title('Per-Group Performance Breakdown', fontsize=14, fontweight='bold')
+            ax5.set_xticks(x_pos)
+            ax5.set_xticklabels(display_names, rotation=45, ha='right')
+            ax5.legend(fontsize=11)
+            ax5.grid(True, alpha=0.3, axis='y')
+            ax5.set_ylim(0, 105)
+            
+            # Add value labels on bars for groups with significant data
+            for i, (comp_rate, corr_rate, speed_rate) in enumerate(zip(comp_rates, corr_rates, speed_rates)):
+                group_idx = indices[i]
+                if group_total[group_idx] >= 2:  # Only label groups with 3+ kernels
+                    if comp_rate > 5:
+                        ax5.annotate(f'{comp_rate:.0f}%', xy=(i - width, comp_rate), xytext=(0, 3),
+                                   textcoords='offset points', ha='center', va='bottom', fontsize=8)
+                    if corr_rate > 5:
+                        ax5.annotate(f'{corr_rate:.0f}%', xy=(i, corr_rate), xytext=(0, 3),
+                                   textcoords='offset points', ha='center', va='bottom', fontsize=8)
+                    if speed_rate > 5:
+                        ax5.annotate(f'{speed_rate:.0f}%', xy=(i + width, speed_rate), xytext=(0, 3),
+                                   textcoords='offset points', ha='center', va='bottom', fontsize=8)
+            
+            # Add summary text box
+            total_groups_with_data = len([i for i in range(len(group_names)) if group_total[i] > 0])
+            summary_text = f"Showing top {total_groups_with_data} groups with data\n"
+            summary_text += f"Groups filtered by total kernel count (≥1)"
+            ax5.text(0.02, 0.98, summary_text, transform=ax5.transAxes, fontsize=9,
+                    verticalalignment='top', bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+    
+    plt.tight_layout()
+    
+    # Save the plot
+    output_path = os.path.join(input_folder, 'kernel_statistics_summary.png')
+    plt.savefig(output_path, dpi=300, bbox_inches='tight', facecolor='white')
+    plt.close()
+    
+    print(f"📊 Kernel statistics plot saved: {output_path}")
 
 def _reconstruct_missing_entry_data(entries: Dict[str, Dict[str, Any]], main_folder: str) -> None:
     """Reconstruct missing plot paths and detailed configurations for existing entries."""
