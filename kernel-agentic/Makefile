@@ -2,7 +2,7 @@
 TORCH_FILE_DIR ?= datasets/torch_example_kernels
 KERNEL_FILE_DIR ?= kernel_codes
 KERNEL_LANG ?= hip
-MODE ?= multimodal
+MODE ?= text
 
 ACTIVATE_VENV_CMD = exec bash -c "source .venv/bin/activate && exec bash"
 
