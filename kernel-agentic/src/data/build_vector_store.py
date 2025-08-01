@@ -113,7 +113,8 @@ def build(language: str, docs_path: str | None, mode: str) -> None:
     else:  # text
         pdfs = list(docs_dir.glob("*.pdf"))
         texts = [*docs_dir.rglob("*.txt")]
-        files = pdfs + texts
+        mds = [*docs_dir.rglob("*.md")]
+        files = pdfs + texts + mds
 
     if not files:
         print(f"⚠  No source files found for {language.upper()} ({mode})")
