@@ -127,8 +127,8 @@ vllm-server:
 			--port 30001 \
 			--enable-auto-tool-choice \
 			--tool-call-parser hermes \
-			--trust-remote-code
-
+			--trust-remote-code; \
 		echo "Don't forget to set local_llm_enabled: true in config.yml"; \
 		echo "vLLM server will be running on port 30001, please wait 3 minutes for it to start..."; \
+		echo "You can use docker logs -f container_id to check the server status"; \
 	fi
