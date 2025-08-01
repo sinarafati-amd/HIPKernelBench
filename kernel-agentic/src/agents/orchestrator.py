@@ -7,6 +7,7 @@ from .feedback_analyzer import KernelFeedbackAnalyser
 from .baseline import baseline_latency
 from .rag_researcher import RAGResearcher
 from .kernel_generator import KernelGenerator
+from .parallel_kernel_generator import ParallelKernelGenerator
 from .kernel_analyser import KernelAnalyser
 from .kernel_optimizer import KernelOptimizer
 from .executor import Executor
@@ -150,7 +151,16 @@ def orchestrate(torch_file: str, iterations: int | None):
     feedback_analyzer = KernelFeedbackAnalyser() 
     researcher = RAGResearcher(kernel_lang=kernel_lang) if PIPELINE_CFG['rag_enabled'] else None  # Language-specific RAG
     searcher   = SearchAgent()
-    generator  = KernelGenerator(kernel_lang=kernel_lang)  # Language-specific generator
+    
+    # Use parallel generator if enabled, fallback to single generator
+    parallel_enabled = PIPELINE_CFG.get("parallel_inference", {}).get("enabled", False)
+    if parallel_enabled:
+        generator = ParallelKernelGenerator(kernel_lang=kernel_lang)  # Parallel generator
+        print("Using Parallel Kernel Generator for inference scaling")
+    else:
+        generator = KernelGenerator(kernel_lang=kernel_lang)  # Single generator
+        print("Using Single Kernel Generator")
+    
     runner     = Executor(kernel_lang=kernel_lang)  # Language-specific executor
     
     torch_expl_raw = analyser.analyse(torch_code)
@@ -187,7 +197,20 @@ def orchestrate(torch_file: str, iterations: int | None):
         # cheat sheet of relevant kernels is only necessary on first iteration because subsequent iterations
         # already have an existing kernel to work from that the LLM wrote
         code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''
-        kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
+        
+        # Generate kernel with parallel scaling if enabled
+        if parallel_enabled and hasattr(generator, 'generate_parallel'):
+            kernel_code = generator.generate(
+                torch_expl=code_input, 
+                doc_context=full_ctx, 
+                feedback=feedback, 
+                iter_idx=i, 
+                previous_kernel=previous_kernel,
+                torch_file=torch_file,
+                baseline_us=baseline_us
+            )
+        else:
+            kernel_code = generator.generate(code_input, full_ctx, feedback=feedback, iter_idx=i, previous_kernel=previous_kernel)
         
         # ---------- compile & run -------------------------------------------
         try:

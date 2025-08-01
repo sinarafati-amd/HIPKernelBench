@@ -9,6 +9,15 @@ Pipeline:
   enable_correctness: false
   help_injection: false
   mode: kernel2kernel # Options: pytorch2kernel, kernel2kernel
+  # Parallel inference scaling configuration
+  parallel_inference:
+    enabled: true # Toggle parallel inference on/off
+    models:
+      claude_kernel_generator: 2 # Number of parallel instances for Claude model
+      o3_kernel_generator: 2 # Number of parallel instances for o3 model  
+    selection_strategy: "best_overall" # Options: best_overall, best_correct, fastest_correct
+    timeout: 120 # Timeout in seconds for parallel execution
+    max_retries: 2 # Max retries per candidate on failure
   search:
     enabled: true
     method: genetic # bayes | genetic
@@ -36,10 +45,14 @@ openai:
       api_version: 2024-02-01
       model_name: GPT-4o
       temperature: 0.01
-    kernel_generator:
+    claude_kernel_generator:
       api_version: 2024-12-01-preview
       model_name: Claude-4
       temperature: 0.3
+    o3_kernel_generator:
+      api_version: 2024-12-01-preview
+      model_name: o3-mini
+      temperature: 1.0 # o3 models only support temperature 1.0
 claude:
   timeout: 120 # Timeout in seconds for Claude API calls
   max_retries: 3 # Number of retry attempts on timeout/server errors
