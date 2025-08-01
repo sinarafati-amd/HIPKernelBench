@@ -163,7 +163,7 @@ def _get_client_for_agent(agent_name: Optional[str] = None) -> tuple[openai.Azur
     base_url     = os.getenv("AZURE_OPENAI_BASE", cfg.get("base_url"))
     api_key      = os.getenv("AZURE_OPENAI_KEY",  cfg.get("api_key",  "dummy"))
     api_version  = agent_config.get("api_version", cfg.get("api_version",  "2024-12-01-preview"))
-    model_id     = agent_config.get("model_name", cfg.get("model_name",  "o3-mini"))
+    model_name     = agent_config.get("model_name", cfg.get("model_name",  "o3-mini"))
     headers      = cfg.get("headers", {"user": "sirafati"})
     
     client = openai.AzureOpenAI(
@@ -173,8 +173,8 @@ def _get_client_for_agent(agent_name: Optional[str] = None) -> tuple[openai.Azur
         default_headers = headers,
     )
     # Azure format:  <base>/openai/deployments/<deployment-id>
-    client.base_url = f'{base_url}/openai/deployments/{model_id}'
-    return client, model_id, api_version
+    client.base_url = f'{base_url}/openai/deployments/{model_name}'
+    return client, model_name, api_version
 
 @lru_cache 
 def _get_claude_client_for_agent(agent_name: Optional[str] = None) -> tuple[callable, str]:
@@ -189,10 +189,10 @@ def _get_claude_client_for_agent(agent_name: Optional[str] = None) -> tuple[call
     base_url = os.getenv("AZURE_OPENAI_BASE", cfg.get("base_url"))
     api_key = cfg.get("headers", {}).get("Ocp-Apim-Subscription-Key", "dummy")
     username = cfg.get("headers", {}).get("user", "sirafati")
-    model_id = agent_config.get("model_name", cfg.get("model_name", "Claude-4"))
+    model_name = agent_config.get("model_name", cfg.get("model_name", "Claude-4"))
     
     claude_client = _create_claude_client(base_url, api_key, username)
-    return claude_client, model_id
+    return claude_client, model_name
 
 def _is_claude_model(model_name: str) -> bool:
     """Check if model name indicates Claude model"""
@@ -202,8 +202,8 @@ def _is_claude_model(model_name: str) -> bool:
 @lru_cache
 def _get_client() -> tuple[openai.AzureOpenAI, str]:
     """Backward compatibility function"""
-    client, model_id, _ = _get_client_for_agent()
-    return client, model_id
+    client, model_name, _ = _get_client_for_agent()
+    return client, model_name
 
 
 # ---------------------------------------------------------------------
@@ -241,10 +241,10 @@ def chat(
     
     if _is_claude_model(model_name):
         # Use Claude client
-        claude_client, model_id = _get_claude_client_for_agent(agent_name)
+        claude_client, model_name = _get_claude_client_for_agent(agent_name)
         
         params = {
-            "model": model_id,
+            "model": model_name,
             "messages": messages,
             "max_completion_tokens": max_completion_tokens,
             "temperature": temperature,
@@ -256,9 +256,9 @@ def chat(
         return claude_client(**params)
     else:
         # Use existing OpenAI client (unchanged behavior)
-        client, model_id, api_version = _get_client_for_agent(agent_name)
+        client, model_name, api_version = _get_client_for_agent(agent_name)
         params = {
-            "model": model_id,
+            "model": model_name,
             "messages": messages,
             "stream": stream,
             "max_completion_tokens": max_completion_tokens,
@@ -266,7 +266,7 @@ def chat(
         }
         
         # Only add temperature if model supports it (o3 models might not)
-        if "o3" not in model_id.lower():
+        if "o3" not in model_name.lower():
             params["temperature"] = temperature
         
         # merge any other extra args 
@@ -296,19 +296,19 @@ def chat_without_AMD_gateway(
 
     if local_llm_enabled:
         client = openai.OpenAI(api_key="dummy", base_url=local_llm_base_url)
-        model_id = "llamas_team_local_llm"
+        model_name = "llamas_team_local_llm"
 
     else:
         client = openai.OpenAI(api_key=public_api_key)
-        model_id = extra.get("model", "o3")  # use o3 model by default
+        model_name = extra.get("model", "o3")  # use o3 model by default
         
     params = {
-        "model": model_id,
+        "model": model_name,
         "messages": messages,
         "stream": stream,
     }
     # Use correct max tokens parameter name
-    if "o3" in model_id.lower():
+    if "o3" in model_name.lower():
         params["max_completion_tokens"] = max_completion_tokens
         # Do NOT set temperature for o3 models (only default 1 is supported)
     else:
