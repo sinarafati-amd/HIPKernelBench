@@ -99,6 +99,11 @@ hip:
   gpu_arch: gfx942
   block_size: 256                   # Good default for matrix operations
   n_samples: 3                      # More samples for averaging
+  profiler: rocprof-compute         # Options: rocprof, rocprof-compute (rocprof for MI250, rocprof-compute for MI300)
+  
+  # Example configuration for MI250:
+  # gpu_arch: gfx90a
+  # profiler: rocprof
 
 rag:
   default_mode: text

@@ -55,8 +55,17 @@ class Executor:
         if shutil.which("hipcc") is None:
             raise RuntimeError("hipcc not found. Please install ROCm HIP compiler.")
         
-        if shutil.which("rocprof-compute") is None:
-            raise RuntimeError("rocprof-compute not found. Please install ROCm profiling tools.")
+        # Check which profiler to use based on config
+        profiler = CFG.get("hip", {}).get("profiler", "rocprof-compute")
+        
+        if profiler == "rocprof-compute":
+            if shutil.which("rocprof-compute") is None:
+                raise RuntimeError("rocprof-compute not found. Please install ROCm profiling tools.")
+        elif profiler == "rocprof":
+            if shutil.which("rocprof") is None:
+                raise RuntimeError("rocprof not found. Please install ROCm profiling tools.")
+        else:
+            raise ValueError(f"Unsupported profiler: {profiler}. Use 'rocprof' or 'rocprof-compute'")
         
         temp_dir = tempfile.mkdtemp(prefix="hip_")
         hip_file = os.path.join(temp_dir, "kernel.hip")
@@ -99,34 +108,57 @@ class Executor:
         print("Running profiling...")
         profile_output_path = os.path.join(temp_dir, "profile_output")
         os.makedirs(profile_output_path, exist_ok=True)
-        profile_cmd = [
-            "rocprof-compute", "profile", "-n", "kernelgen", "--path", "profile_output", "--no-roof", \
-                "--join-type", "kernel", "--", out_name
-        ]
-        try:
-            env = os.environ.copy()
-            env['LC_ALL'] = 'C'
-            env['LANG'] = 'C'
+        
+        # Use appropriate profiler based on config
+        profiler = CFG.get("hip", {}).get("profiler", "rocprof-compute")
+        
+        if profiler == "rocprof-compute":
+            profile_cmd = [
+                "rocprof-compute", "profile", "-n", "kernelgen", "--path", "profile_output", "--no-roof", \
+                    "--join-type", "kernel", "--", out_name
+            ]
+        elif profiler == "rocprof":
+            # For rocprof, we need to use the profile function from rocprof_parser
+            # which expects the binary path directly
+            from utils.rocprof_parser import profile
+            try:
+                metrics_dict = profile(out_name)
+                log.append({"event": "execution_stats", **metrics_dict})
+                print("Profiling successful!")
+                return metrics_dict, None, hip_file
+            except Exception as e:
+                print(f"Profiling failed. Error: {e}")
+                log.append({"event": "profiling_error", "error": str(e)})
+                raise RuntimeError(str(e))
+        else:
+            raise ValueError(f"Unsupported profiler: {profiler}")
+        
+        # Only execute rocprof-compute if we're using that profiler
+        if profiler == "rocprof-compute":
+            try:
+                env = os.environ.copy()
+                env['LC_ALL'] = 'C'
+                env['LANG'] = 'C'
+                
+                result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ, cwd=temp_dir)
+
+            except Exception as e:
+                print(f"Profiling failed. Error: {e}")
+                log.append({"event": "profiling_error", "stdout": e.output, "stderr": e.stderr})
+                raise RuntimeError(e.output)
             
-            result = subprocess.run(profile_cmd, capture_output=True, text=True, env=os.environ, cwd=temp_dir)
+            
+            # Check if profiling files were created
+            temp_dir = Path(temp_dir)
+            profile_ouput_dir = temp_dir / "profile_output"
+            if not profile_ouput_dir.exists():
+                print(f"Profiling output directory not found: {profile_ouput_dir}")
+                raise RuntimeError("Profiling output directory not found")
+            
+            # Collect metrics using existing function for rocprof-compute
+            metrics_dict = collect_metrics(profile_ouput_dir)
 
-        except Exception as e:
-            print(f"Profiling failed. Error: {e}")
-            log.append({"event": "profiling_error", "stdout": e.output, "stderr": e.stderr})
-            raise RuntimeError(e.output)
-        
-        
-        # Check if profiling files were created
-        temp_dir = Path(temp_dir)
-        profile_ouput_dir = temp_dir / "profile_output"
-        if not profile_ouput_dir.exists():
-            print(f"Profiling output directory not found: {profile_ouput_dir}")
-            raise RuntimeError("Profiling output directory not found")
-        
-        # Collect metrics using existing function
-        metrics_dict = collect_metrics(profile_ouput_dir)
+            log.append({"event": "execution_stats", **metrics_dict})
+            print("Profiling successful!")
 
-        log.append({"event": "execution_stats", **metrics_dict})
-        print("Profiling successful!")
-
-        return metrics_dict, None, hip_file
+            return metrics_dict, None, hip_file
