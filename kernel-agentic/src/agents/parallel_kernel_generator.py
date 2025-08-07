@@ -12,6 +12,7 @@ import time
 import yaml
 import json
 import threading
+import re
 from dataclasses import dataclass
 
 from .kernel_generator import KernelGenerator
@@ -66,7 +67,7 @@ class KernelCandidate:
             score += 200
             
         # Performance bonus: up to +150 points based on speedup
-        if self.speedup and self.speedup > 0:
+        if self.speedup and self.speedup > 1:
             # Logarithmic scaling for speedup
             import math
             score += min(150, 50 * math.log(self.speedup + 1))
@@ -98,6 +99,7 @@ def _extract_latency_us(stats: Dict[str, Any] | None) -> float | None:
 class ParallelKernelGenerator:
     """
     Manages parallel kernel generation using multiple models and instances.
+    Now includes generalized complexity detection for all operation types.
     """
     
     def __init__(self, kernel_lang: str = None):
@@ -127,6 +129,282 @@ class ParallelKernelGenerator:
         print(f"  Selection strategy: {self.selection_strategy}")
         print(f"  Timeout: {self.timeout}s")
     
+    def _detect_kernel_complexity(self, torch_expl: str) -> Dict[str, Any]:
+        """Analyze the complexity of the requested kernel - generalized for all operation types"""
+        explanation_lower = torch_expl.lower()
+        
+        complexity_indicators = {
+            "operation_category": "unknown",
+            "operation_type": "unknown",
+            "estimated_complexity": "low",
+            "memory_bound": False,
+            "compute_bound": False,
+            "data_dimensions": [],
+            "optimization_hints": [],
+            "complexity_factors": {}
+        }
+        
+        # === MATRIX OPERATIONS ===
+        if any(op in explanation_lower for op in ["matmul", "matrix multiplication", "gemm", "dot product"]):
+            complexity_indicators["operation_category"] = "matrix_ops"
+            complexity_indicators["operation_type"] = "matmul"
+            
+            # Extract matrix dimensions
+            size_patterns = [r'(\d+)x(\d+)', r'(\d+) x (\d+)', r'size.*?(\d+)', r'shape.*?(\d+)']
+            max_dim = 0
+            for pattern in size_patterns:
+                matches = re.findall(pattern, torch_expl)
+                if matches:
+                    for match in matches:
+                        if isinstance(match, tuple):
+                            dim = max(int(x) for x in match)
+                        else:
+                            dim = int(match)
+                        max_dim = max(max_dim, dim)
+                        complexity_indicators["data_dimensions"].append(dim)
+            
+            if max_dim > 1024:
+                complexity_indicators["estimated_complexity"] = "high"
+                complexity_indicators["memory_bound"] = True
+                complexity_indicators["optimization_hints"] = ["tiling", "shared_memory", "coalescing", "register_blocking"]
+            elif max_dim > 256:
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["compute_bound"] = True
+                complexity_indicators["optimization_hints"] = ["vectorization", "shared_memory", "thread_optimization"]
+            
+            complexity_indicators["complexity_factors"]["matrix_size"] = max_dim
+            
+        # === CONVOLUTION OPERATIONS ===
+        elif any(op in explanation_lower for op in ["conv", "convolution"]):
+            complexity_indicators["operation_category"] = "convolution"
+            
+            # Detect convolution type
+            if "depthwise" in explanation_lower and "separable" in explanation_lower:
+                complexity_indicators["operation_type"] = "separable_conv"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["factored_kernels", "channel_optimization"]
+            elif "depthwise" in explanation_lower:
+                complexity_indicators["operation_type"] = "depthwise_conv"
+                complexity_indicators["optimization_hints"] = ["channel_parallelism", "spatial_tiling"]
+            elif "separable" in explanation_lower:
+                complexity_indicators["operation_type"] = "separable_conv"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["factored_kernels", "channel_optimization"]
+            elif "transposed" in explanation_lower:
+                complexity_indicators["operation_type"] = "transposed_conv"
+                complexity_indicators["optimization_hints"] = ["inverse_mapping", "memory_layout"]
+            elif "pointwise" in explanation_lower:
+                complexity_indicators["operation_type"] = "pointwise_conv"
+                complexity_indicators["optimization_hints"] = ["vectorization", "channel_parallelism"]
+            else:
+                complexity_indicators["operation_type"] = "standard_conv"
+            
+            # Detect dimensionality
+            if "3d" in explanation_lower:
+                complexity_indicators["estimated_complexity"] = "high"
+                complexity_indicators["memory_bound"] = True
+                complexity_indicators["optimization_hints"].extend(["3d_tiling", "temporal_blocking"])
+            elif "2d" in explanation_lower:
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["compute_bound"] = True
+                complexity_indicators["optimization_hints"].extend(["spatial_tiling", "im2col"])
+            elif "1d" in explanation_lower:
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"].extend(["vectorization", "sliding_window"])
+        
+        # === ACTIVATION FUNCTIONS ===
+        elif any(op in explanation_lower for op in ["relu", "gelu", "sigmoid", "tanh", "swish", "elu", "selu"]):
+            complexity_indicators["operation_category"] = "activation"
+            
+            if "gelu" in explanation_lower:
+                complexity_indicators["operation_type"] = "gelu"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["mathematical_approximation", "vectorization", "fused_ops"]
+            elif "swish" in explanation_lower:
+                complexity_indicators["operation_type"] = "swish"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["fused_sigmoid_mul", "vectorization"]
+            elif "relu" in explanation_lower:
+                complexity_indicators["operation_type"] = "relu"
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"] = ["vectorization", "fused_ops", "conditional_optimization"]
+            else:
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"] = ["vectorization", "mathematical_optimization"]
+        
+        # === NORMALIZATION OPERATIONS ===
+        elif any(op in explanation_lower for op in ["norm", "batchnorm", "layernorm", "groupnorm", "rmsnorm"]):
+            complexity_indicators["operation_category"] = "normalization"
+            
+            if "layernorm" in explanation_lower:
+                complexity_indicators["operation_type"] = "layernorm"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["welford_algorithm", "reduction_optimization", "fused_ops"]
+            elif "batchnorm" in explanation_lower:
+                complexity_indicators["operation_type"] = "batchnorm"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["batch_reduction", "running_statistics", "fused_ops"]
+            elif "groupnorm" in explanation_lower:
+                complexity_indicators["operation_type"] = "groupnorm"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["group_reduction", "channel_grouping"]
+            elif "rmsnorm" in explanation_lower:
+                complexity_indicators["operation_type"] = "rmsnorm"
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"] = ["rms_calculation", "vectorization"]
+        
+        # === POOLING OPERATIONS ===
+        elif any(op in explanation_lower for op in ["pool", "pooling"]):
+            complexity_indicators["operation_category"] = "pooling"
+            
+            if "max" in explanation_lower:
+                complexity_indicators["operation_type"] = "max_pooling"
+                complexity_indicators["optimization_hints"] = ["sliding_window", "reduction_optimization"]
+            elif "average" in explanation_lower or "avg" in explanation_lower:
+                complexity_indicators["operation_type"] = "avg_pooling"
+                complexity_indicators["optimization_hints"] = ["accumulation", "division_optimization"]
+            
+            # Dimensionality affects complexity
+            if "3d" in explanation_lower:
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"].append("3d_window")
+            else:
+                complexity_indicators["estimated_complexity"] = "low"
+        
+        # === REDUCTION OPERATIONS ===
+        elif any(op in explanation_lower for op in ["sum", "mean", "max", "min", "argmax", "argmin", "product"]):
+            complexity_indicators["operation_category"] = "reduction"
+            
+            if "cumsum" in explanation_lower or "cumprod" in explanation_lower:
+                complexity_indicators["operation_type"] = "cumulative"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["prefix_sum", "scan_algorithm", "bank_conflicts"]
+            elif any(op in explanation_lower for op in ["argmax", "argmin"]):
+                complexity_indicators["operation_type"] = "argreduce"
+                complexity_indicators["optimization_hints"] = ["index_tracking", "reduction_trees"]
+            else:
+                complexity_indicators["operation_type"] = "simple_reduction"
+                complexity_indicators["optimization_hints"] = ["reduction_trees", "shared_memory", "warp_primitives"]
+        
+        # === LOSS FUNCTIONS ===
+        elif any(op in explanation_lower for op in ["loss", "mse", "crossentropy", "hinge", "huber", "cosine", "kl", "triplet"]):
+            complexity_indicators["operation_category"] = "loss"
+            
+            if "crossentropy" in explanation_lower:
+                complexity_indicators["operation_type"] = "crossentropy_loss"
+                complexity_indicators["estimated_complexity"] = "medium"
+                complexity_indicators["optimization_hints"] = ["logsumexp", "numerical_stability", "softmax_fusion"]
+            elif "triplet" in explanation_lower:
+                complexity_indicators["operation_type"] = "triplet_loss"
+                complexity_indicators["estimated_complexity"] = "high"
+                complexity_indicators["optimization_hints"] = ["distance_computation", "margin_handling", "mining_strategy"]
+            elif "cosine" in explanation_lower:
+                complexity_indicators["operation_type"] = "cosine_loss"
+                complexity_indicators["optimization_hints"] = ["dot_product", "normalization", "vectorization"]
+            else:
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"] = ["elementwise_ops", "reduction"]
+        
+        # === DEFAULT CASE ===
+        else:
+            # Try to infer from tensor operations
+            if any(op in explanation_lower for op in ["tensor", "element", "broadcast"]):
+                complexity_indicators["operation_category"] = "elementwise"
+                complexity_indicators["estimated_complexity"] = "low"
+                complexity_indicators["optimization_hints"] = ["vectorization", "memory_coalescing", "broadcast_optimization"]
+        
+        return complexity_indicators
+    
+    def _generate_enhanced_prompts(
+        self,
+        torch_expl: str,
+        complexity_info: Dict[str, Any]
+    ) -> Dict[str, str]:
+        """Generate enhanced prompts based on complexity analysis"""
+        
+        base_prompt = torch_expl
+        
+        # Get operation-specific guidance
+        operation_category = complexity_info.get("operation_category", "unknown")
+        operation_type = complexity_info.get("operation_type", "unknown")
+        optimization_hints = complexity_info.get("optimization_hints", [])
+        estimated_complexity = complexity_info.get("estimated_complexity", "low")
+        
+        # Add complexity-specific guidance
+        complexity_guidance = f"""
+
+                            OPERATION ANALYSIS:
+                            - Category: {operation_category}
+                            - Type: {operation_type}
+                            - Complexity: {estimated_complexity}
+                            - Recommended optimizations: {', '.join(optimization_hints)}
+
+                            GENERAL HIP KERNEL OPTIMIZATIONS:
+                            1. Use efficient memory access patterns and coalescing
+                            2. Leverage shared memory (LDS) when beneficial
+                            3. Implement proper thread block and grid sizing
+                            4. Consider vectorization opportunities
+                            5. Use appropriate synchronization primitives
+                            6. Optimize for MI300X (gfx942) architecture
+                            """
+        
+        # Add category-specific guidance
+        if operation_category == "matrix_ops":
+            complexity_guidance += """
+                                    MATRIX OPERATION SPECIFIC:
+                                    - Use tiling strategies for large matrices
+                                    - Implement register blocking for inner loops
+                                    - Consider transpose optimizations
+                                    """
+        elif operation_category == "convolution":
+            complexity_guidance += """
+                                    CONVOLUTION SPECIFIC:
+                                    - Use spatial and channel tiling
+                                    - Consider im2col or direct convolution
+                                    - Optimize for kernel sizes and strides
+                                    """
+        elif operation_category == "activation":
+            complexity_guidance += """
+                                    ACTIVATION FUNCTION SPECIFIC:
+                                    - Use vectorized SIMD operations
+                                    - Consider mathematical approximations
+                                    - Implement fusion opportunities
+                                    """
+        elif operation_category in ["normalization", "reduction"]:
+            complexity_guidance += """
+                                    REDUCTION/NORMALIZATION SPECIFIC:
+                                    - Use efficient reduction patterns
+                                    - Implement tree reductions when appropriate
+                                    - Consider numerical stability
+                                    """
+        
+        base_prompt += complexity_guidance
+        
+        # Model-specific prompts
+        prompts = {}
+        
+        # Claude prompt - emphasize correctness and structure
+        prompts["claude_kernel_generator"] = base_prompt + f"""
+
+                                                        CLAUDE-SPECIFIC GUIDANCE:
+                                                        - Prioritize correctness and numerical stability
+                                                        - Use clear, well-structured code with comments
+                                                        - Implement robust error handling and boundary checks
+                                                        - Focus on maintainable and readable implementations
+                                                        """
+        
+        # o3 prompt - emphasize performance
+        prompts["o3_kernel_generator"] = base_prompt + f"""
+
+                                                        O3-SPECIFIC GUIDANCE:
+                                                        - Optimize aggressively for maximum performance
+                                                        - Use advanced optimization techniques
+                                                        - Focus on minimal latency and maximum throughput
+                                                        - Consider hardware-specific optimizations for MI300X
+                                                        """
+        
+        return prompts
+    
     def _generate_single_candidate(
         self,
         agent_name: str,
@@ -135,18 +413,22 @@ class ParallelKernelGenerator:
         doc_context: str,
         feedback: str,
         iter_idx: int,
-        previous_kernel: str
+        previous_kernel: str,
+        enhanced_prompts: Dict[str, str] = None
     ) -> KernelCandidate:
-        """Generate a single kernel candidate"""
+        """Generate a single kernel candidate with enhanced prompting"""
         start_time = time.time()
         
         try:
             # Generate kernel code
             generator = self.generators[agent_name]
             
-            # Build code input
-            code_input = torch_expl
-            
+            # Use enhanced prompt if available, otherwise use original
+            if enhanced_prompts and agent_name in enhanced_prompts:
+                code_input = enhanced_prompts[agent_name]
+            else:
+                code_input = torch_expl
+
             kernel_code = generator.generate(
                 torch_expl=code_input,
                 doc_context=doc_context,
@@ -169,7 +451,8 @@ class ParallelKernelGenerator:
                 "agent": agent_name,
                 "instance": instance_id,
                 "generation_time": generation_time,
-                "code_length": len(kernel_code)
+                "code_length": len(kernel_code),
+                "enhanced_prompt_used": enhanced_prompts is not None
             })
             
             return candidate
@@ -352,6 +635,7 @@ class ParallelKernelGenerator:
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Generate multiple kernel candidates in parallel and return the best one.
+        Now includes generalized complexity detection and enhanced prompting.
         
         Returns:
             Tuple of (best_kernel_code, selection_metadata)
@@ -367,6 +651,13 @@ class ParallelKernelGenerator:
         
         start_time = time.time()
         
+        # Step 1: Analyze kernel complexity
+        complexity_info = self._detect_kernel_complexity(torch_expl)
+        print(f"Detected operation: {complexity_info['operation_category']}/{complexity_info['operation_type']} ({complexity_info['estimated_complexity']} complexity)")
+        
+        # Step 2: Generate enhanced prompts
+        enhanced_prompts = self._generate_enhanced_prompts(torch_expl, complexity_info)
+        
         # Create list of generation tasks
         tasks = []
         for agent_name, count in self.models.items():
@@ -374,9 +665,9 @@ class ParallelKernelGenerator:
                 for instance_id in range(count):
                     tasks.append((agent_name, instance_id))
         
-        print(f"Starting parallel generation with {len(tasks)} tasks...")
+        print(f"Starting parallel generation with {len(tasks)} tasks and enhanced prompts...")
         
-        # Generate candidates in parallel
+        # Generate candidates in parallel with enhanced prompts
         candidates = []
         with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
             # Submit generation tasks
@@ -384,7 +675,7 @@ class ParallelKernelGenerator:
                 executor.submit(
                     self._generate_single_candidate,
                     agent_name, instance_id, torch_expl, doc_context,
-                    feedback, iter_idx, previous_kernel
+                    feedback, iter_idx, previous_kernel, enhanced_prompts
                 ): (agent_name, instance_id)
                 for agent_name, instance_id in tasks
             }
@@ -454,6 +745,8 @@ class ParallelKernelGenerator:
         # Create comprehensive metadata
         metadata = {
             "parallel_enabled": True,
+            "complexity_analysis": complexity_info,  # Include complexity analysis
+            "enhanced_prompts_used": True,
             "total_time": total_time,
             "generation_time": generation_time,
             "total_tasks": len(tasks),
@@ -477,9 +770,10 @@ class ParallelKernelGenerator:
             **selection_info
         }
         
-        # Log summary
+        # Log summary with complexity info
         log.append({
             "event": "parallel_generation_complete",
+            "complexity_analysis": complexity_info,
             "metadata": metadata,
             "selected_code_length": len(best_candidate.code),
             "best_candidate": {

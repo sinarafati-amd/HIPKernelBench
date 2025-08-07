@@ -8,6 +8,7 @@ from .baseline import baseline_latency
 from .rag_researcher import RAGResearcher
 from .kernel_generator import KernelGenerator
 from .parallel_kernel_generator import ParallelKernelGenerator
+from .enhanced_parallel_generator import EnhancedParallelKernelGenerator
 from .kernel_analyser import KernelAnalyser
 from .kernel_optimizer import KernelOptimizer
 from .executor import Executor
@@ -154,9 +155,15 @@ def orchestrate(torch_file: str, iterations: int | None):
     
     # Use parallel generator if enabled, fallback to single generator
     parallel_enabled = PIPELINE_CFG.get("parallel_inference", {}).get("enabled", False)
+    enhanced_mode = PIPELINE_CFG.get("parallel_inference", {}).get("enhanced_mode", False)
+    
     if parallel_enabled:
-        generator = ParallelKernelGenerator(kernel_lang=kernel_lang)  # Parallel generator
-        print("Using Parallel Kernel Generator for inference scaling")
+        if enhanced_mode:
+            generator = EnhancedParallelKernelGenerator(kernel_lang=kernel_lang)  # Enhanced parallel generator
+            print("Using Enhanced Parallel Kernel Generator with Alpha Evolve for complex kernels")
+        else:
+            generator = ParallelKernelGenerator(kernel_lang=kernel_lang)  # Standard parallel generator
+            print("Using Standard Parallel Kernel Generator for inference scaling")
     else:
         generator = KernelGenerator(kernel_lang=kernel_lang)  # Single generator
         print("Using Single Kernel Generator")
@@ -185,7 +192,13 @@ def orchestrate(torch_file: str, iterations: int | None):
     full_ctx = doc_ctx + search_ctx
 
     # ---- Phase 1 LLM based kernel generation loop ---------------------------------------------------
+    print(f"Starting Phase 1 LLM kernel generation loop:")
+    print(f"  min_iters: {min_iters}, max_iters: {max_iters}")
+    print(f"  target_speedup: {target_speedup}, patience: {patience_phase1}")
+    print(f"  parallel_enabled: {parallel_enabled}")
+    
     while True:
+        print(f"\n--- Starting iteration {i} ---")
         log.append({"event": "iteration_start", "iter": i})
         code_input = torch_expl + "\n\n [Here is the PyTorch Code:] \n\n" + torch_code
 
@@ -198,9 +211,19 @@ def orchestrate(torch_file: str, iterations: int | None):
         # already have an existing kernel to work from that the LLM wrote
         code_input += "\n\n [Here are the available kernels to learn from:] \n\n" + cheat_code if PIPELINE_CFG['cheat_sheet'] and i == 0 else ''
         
-        # Generate kernel with parallel scaling if enabled
-        if parallel_enabled and hasattr(generator, 'generate_parallel'):
+        # Generate kernel with enhanced parallel generator if it's the enhanced version
+        if isinstance(generator, EnhancedParallelKernelGenerator):
             kernel_code = generator.generate(
+                torch_expl=code_input, 
+                doc_context=full_ctx, 
+                feedback=feedback, 
+                iter_idx=i, 
+                previous_kernel=previous_kernel,
+                torch_file=torch_file,
+                baseline_us=baseline_us
+            )
+        elif parallel_enabled and hasattr(generator, 'generate_parallel'):
+            kernel_code = generator.generate_parallel(
                 torch_expl=code_input, 
                 doc_context=full_ctx, 
                 feedback=feedback, 
@@ -247,11 +270,12 @@ def orchestrate(torch_file: str, iterations: int | None):
             fails += 1
             feedback = str(exc)
             log.append({"event": "iteration_failed", "iter": i, "error": feedback})
-            if fails >= max_fail or i + 1 >= max_iters:
+            # Increment iteration counter for failed iterations
+            i += 1
+            if fails >= max_fail or i >= max_iters:
                 log.append({"event": "early_stop",
                             "reason": "too_many_failures" if fails >= max_fail else "max_iters"})
                 return
-            i += 1
             continue
 
         if errors is None:
@@ -273,17 +297,60 @@ def orchestrate(torch_file: str, iterations: int | None):
         correct    = errors is None or errors == "" 
         # ---------- phase-1 stop conditions ---------------------------------
         reached_target  = correct and (speedup >= target_speedup)
-        out_of_patience = correct and (no_gain   >= patience_phase1) and (i + 1 >= min_iters)
+        out_of_patience = correct and (no_gain   >= patience_phase1) and (i >= min_iters)
         # stop on max iters *regardless* of correctness
-        hit_max_iters   = (i + 1) >= max_iters
-        hit_min_iters   = (i + 1) >= min_iters
+        hit_max_iters   = i >= max_iters
+        hit_min_iters   = i >= min_iters
 
-        if reached_target or out_of_patience or hit_max_iters:
-            reason = (
-                "target_speedup"    if reached_target
-                else "no_improvement" if out_of_patience
-                else "max_iters"
-            )
+        print(f"Iteration {i} stopping conditions:")
+        print(f"  correct: {correct}, speedup: {speedup:.2f}, no_gain: {no_gain}")
+        print(f"  reached_target: {reached_target}, out_of_patience: {out_of_patience}")
+        print(f"  hit_max_iters: {hit_max_iters}, hit_min_iters: {hit_min_iters}")
+
+        # Modified stopping logic: only stop when correctness is achieved OR max iterations reached
+        # For pytorch2kernel mode with parallel generators, prioritize correctness
+        should_stop = False
+        if parallel_enabled:
+            # For parallel generators: continue until correct OR max iterations
+            should_stop = (correct and (reached_target or out_of_patience or hit_min_iters)) or hit_max_iters
+        else:
+            # Original logic for single generator
+            should_stop = reached_target or out_of_patience or hit_max_iters
+        
+        print(f"  should_stop: {should_stop}")
+
+        if should_stop:
+            print(f"\n=== STOPPING PHASE 1 after iteration {i} ===")
+            print(f"Stopping reason analysis:")
+            print(f"  correct: {correct}")
+            print(f"  reached_target: {reached_target}")  
+            print(f"  out_of_patience: {out_of_patience}")
+            print(f"  hit_max_iters: {hit_max_iters}")
+            print(f"  hit_min_iters: {hit_min_iters}")
+            print(f"  parallel_enabled: {parallel_enabled}")
+            
+            if parallel_enabled:
+                # For parallel generators: determine reason based on new logic
+                if correct and reached_target:
+                    reason = "target_speedup"
+                elif correct and out_of_patience:
+                    reason = "no_improvement"
+                elif correct and hit_min_iters:
+                    reason = "correctness_achieved"
+                elif hit_max_iters:
+                    reason = "max_iters"
+                else:
+                    reason = "unknown"
+            else:
+                # Original reason logic for single generator
+                reason = (
+                    "target_speedup"    if reached_target
+                    else "no_improvement" if out_of_patience
+                    else "max_iters"
+                )
+            
+            print(f"  final_reason: {reason}")
+            print("=" * 50)
             log.append({
                 "event" : "early_log",
                 "reason": reason,
@@ -315,7 +382,10 @@ def orchestrate(torch_file: str, iterations: int | None):
                         "hip_us"  : hip_us_raw,
                     })
                     log.append({"event":"phase1_complete","iter":i,"hip_us":hip_us})
-                    break   # ───────  exit phase-1 ➜ phase-2  ─────── 
+            
+            # Always break when stopping condition is met, regardless of correctness
+            print(f"Breaking from Phase 1 loop due to: {reason}")
+            break   # ───────  exit phase-1 ➜ phase-2  ─────── 
 
         # bookkeeping for ‘no‐gain’
         if hip_us_raw is not None:
@@ -335,12 +405,14 @@ def orchestrate(torch_file: str, iterations: int | None):
             **(stats or {})
         })
 
+        # Increment iteration counter AFTER completion of this iteration
+        i += 1
+        print(f"--- Completed PyTorch->Kernel iteration {i-1}, starting next iteration {i} ---")
+
         if not errors or errors == "":
             feedback_text = json.dumps({"profile": stats,"correct": True})
         else:
             feedback_text = errors
-
-
 
         feedback = feedback_analyzer.analyse(kernel_code, feedback_text) 
         print('&'*70)
@@ -349,7 +421,42 @@ def orchestrate(torch_file: str, iterations: int | None):
         # Store current kernel as previous for next iteration  
         previous_kernel = kernel_code
         
-        i += 1
+        # ---- GEAK-Agent inspired debugging trap prevention ----------------
+        # Check if we're stuck in a debugging loop with the same error
+        if feedback:
+            current_error_signature = feedback[:200]  # Use first 200 chars as error signature
+            if not hasattr(feedback_analyzer, '_error_history'):
+                feedback_analyzer._error_history = []
+            
+            # Check for repeated errors (debugging trap detection)
+            similar_errors = sum(1 for prev_error in feedback_analyzer._error_history 
+                               if prev_error == current_error_signature)
+            
+            feedback_analyzer._error_history.append(current_error_signature)
+            
+            # If we've seen this error 3+ times, suggest alternative approach
+            if similar_errors >= 2:
+                log.append({
+                    "event": "debugging_trap_detected",
+                    "iter": i-1,  # Use i-1 since we already incremented
+                    "repeated_error": current_error_signature,
+                    "count": similar_errors + 1
+                })
+                
+                # Add alternative strategy suggestion to feedback
+                alternative_strategy = """
+                
+                DEBUGGING TRAP DETECTED: This error has occurred multiple times.
+                Consider alternative approaches:
+                1. Simplify the algorithm - use a more basic implementation
+                2. Change the data layout or memory access patterns
+                3. Use different mathematical formulations
+                4. Break down complex operations into simpler steps
+                5. Try a completely different algorithmic approach
+                
+                Focus on finding a working solution rather than optimizing the current approach.
+                """
+                feedback += alternative_strategy
 
     # ----------------  no correct kernel → abort whole run ------------------
     if best_code is None:
@@ -493,7 +600,22 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
     feedback_analyzer = KernelFeedbackAnalyser()
     researcher = RAGResearcher(kernel_lang=kernel_lang) if PIPELINE_CFG['rag_enabled'] else None
     searcher = SearchAgent()
-    optimizer = KernelOptimizer(kernel_lang=kernel_lang)
+    
+    # Use parallel generator if enabled, fallback to single optimizer
+    parallel_enabled = PIPELINE_CFG.get("parallel_inference", {}).get("enabled", False)
+    enhanced_mode = PIPELINE_CFG.get("parallel_inference", {}).get("enhanced_mode", False)
+    
+    if parallel_enabled:
+        if enhanced_mode:
+            optimizer = EnhancedParallelKernelGenerator(kernel_lang=kernel_lang)  # Enhanced parallel optimizer
+            print("Using Enhanced Parallel Kernel Generator for kernel2kernel optimization")
+        else:
+            optimizer = ParallelKernelGenerator(kernel_lang=kernel_lang)  # Standard parallel optimizer
+            print("Using Standard Parallel Kernel Generator for kernel2kernel optimization")
+    else:
+        optimizer = KernelOptimizer(kernel_lang=kernel_lang)  # Single optimizer
+        print("Using Single Kernel Optimizer for kernel2kernel mode")
+    
     runner = Executor(kernel_lang=kernel_lang)
 
     # ---- analyze the input kernel ------------------------------------------
@@ -553,14 +675,27 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
                                 {complexity}
                                 """
 
-        # Generate optimized kernel
-        optimized_code = optimizer.optimize(
-            kernel_code=previous_kernel,
-            analysis=optimization_context,
-            doc_context=full_ctx,
-            feedback=feedback,
-            iter_idx=i
-        )
+        # Generate optimized kernel using parallel generators or single optimizer
+        if parallel_enabled and isinstance(optimizer, (ParallelKernelGenerator, EnhancedParallelKernelGenerator)):
+            # For parallel generators, use the generate method with optimization context as torch_expl
+            optimized_code = optimizer.generate(
+                torch_expl=optimization_context,
+                doc_context=full_ctx,
+                feedback=feedback,
+                iter_idx=i,
+                previous_kernel=previous_kernel,
+                torch_file="",  # No torch file for kernel2kernel mode
+                baseline_us=baseline_us
+            )
+        else:
+            # For single optimizer, use the optimize method
+            optimized_code = optimizer.optimize(
+                kernel_code=previous_kernel,
+                analysis=optimization_context,
+                doc_context=full_ctx,
+                feedback=feedback,
+                iter_idx=i
+            )
 
         # ---------- compile & run -------------------------------------------
         try:
@@ -574,11 +709,12 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
             fails += 1
             feedback = str(exc)
             log.append({"event": "optimization_iteration_failed", "iter": i, "error": feedback})
-            if fails >= max_fail or i + 1 >= max_iters:
+            # Increment iteration counter for failed iterations
+            i += 1
+            if fails >= max_fail or i >= max_iters:
                 log.append({"event": "early_stop",
                             "reason": "too_many_failures" if fails >= max_fail else "max_iters"})
                 return
-            i += 1
             continue
 
         if errors is None:
@@ -602,16 +738,39 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
 
         # ---------- phase-1 stop conditions ---------------------------------
         reached_target = correct and (speedup >= target_speedup)
-        out_of_patience = correct and (no_gain >= patience_phase1) and (i + 1 >= min_iters)
-        hit_max_iters = (i + 1) >= max_iters
-        hit_min_iters = (i + 1) >= min_iters
+        out_of_patience = correct and (no_gain >= patience_phase1) and (i >= min_iters)
+        hit_max_iters = i >= max_iters
+        hit_min_iters = i >= min_iters
 
-        if reached_target or out_of_patience or hit_max_iters:
-            reason = (
-                "target_speedup" if reached_target
-                else "no_improvement" if out_of_patience
-                else "max_iters"
-            )
+        # Modified stopping logic for kernel2kernel mode: prioritize correctness when using parallel generators
+        should_stop = False
+        if parallel_enabled:
+            # For parallel generators in kernel2kernel mode: continue until correct OR max iterations
+            should_stop = (correct and (reached_target or out_of_patience or hit_min_iters)) or hit_max_iters
+        else:
+            # Original logic for single optimizer
+            should_stop = reached_target or out_of_patience or hit_max_iters
+
+        if should_stop:
+            if parallel_enabled:
+                # For parallel generators: determine reason based on new logic
+                if correct and reached_target:
+                    reason = "target_speedup"
+                elif correct and out_of_patience:
+                    reason = "no_improvement"
+                elif correct and hit_min_iters:
+                    reason = "correctness_achieved"
+                elif hit_max_iters:
+                    reason = "max_iters"
+                else:
+                    reason = "unknown"
+            else:
+                # Original reason logic for single optimizer
+                reason = (
+                    "target_speedup" if reached_target
+                    else "no_improvement" if out_of_patience
+                    else "max_iters"
+                )
             log.append({
                 "event": "early_log_optimization",
                 "reason": reason,
@@ -641,7 +800,10 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
                         "hip_us": hip_us_raw,
                     })
                     log.append({"event": "optimization_phase1_complete", "iter": i, "hip_us": hip_us})
-                    break
+            
+            # Always break when stopping condition is met, regardless of correctness
+            print(f"Breaking from Kernel Optimization loop due to: {reason}")
+            break
 
         # bookkeeping for 'no‐gain'
         if hip_us_raw is not None:
@@ -661,6 +823,10 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
             **(stats or {})
         })
 
+        # Increment iteration counter AFTER completion of this iteration
+        i += 1
+        print(f"--- Completed Kernel->Kernel optimization iteration {i-1}, starting next iteration {i} ---")
+
         if not errors or errors == "":
             feedback_text = json.dumps({"profile": stats, "correct": True})
         else:
@@ -671,9 +837,46 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
         print(feedback)
         print('&' * 70)
         
+        # ---- GEAK-Agent inspired debugging trap prevention ----------------
+        # Check if we're stuck in a debugging loop with the same error
+        if feedback:
+            current_error_signature = feedback[:200]  # Use first 200 chars as error signature
+            if not hasattr(feedback_analyzer, '_error_history_kernel_opt'):
+                feedback_analyzer._error_history_kernel_opt = []
+            
+            # Check for repeated errors (debugging trap detection)
+            similar_errors = sum(1 for prev_error in feedback_analyzer._error_history_kernel_opt 
+                               if prev_error == current_error_signature)
+            
+            feedback_analyzer._error_history_kernel_opt.append(current_error_signature)
+            
+            # If we've seen this error 3+ times, suggest alternative approach
+            if similar_errors >= 2:
+                log.append({
+                    "event": "debugging_trap_detected_kernel_opt",
+                    "iter": i-1,  # Use i-1 since we already incremented
+                    "repeated_error": current_error_signature,
+                    "count": similar_errors + 1
+                })
+                
+                # Add alternative strategy suggestion to feedback
+                alternative_strategy = """
+                
+                DEBUGGING TRAP DETECTED: This error has occurred multiple times.
+                Consider alternative approaches:
+                1. Simplify the optimization - use more conservative changes
+                2. Change the memory access patterns or data layout
+                3. Use different optimization techniques (e.g., loop unrolling vs vectorization)
+                4. Break down complex optimizations into smaller incremental steps
+                5. Try a completely different optimization strategy
+                6. Revert to a simpler working version and optimize differently
+                
+                Focus on finding a working optimized solution rather than perfecting the current approach.
+                """
+                feedback += alternative_strategy
+        
         # Store current kernel as previous for next iteration
         previous_kernel = optimized_code
-        i += 1
 
     # ----------------  no valid optimized kernel → return original ------------------
     if best_code is None:

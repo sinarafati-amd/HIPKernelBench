@@ -1,4 +1,46 @@
-Earlier compile/run feedback:
+**Previous Execution Feedback Analysis:**
+
 {error_or_profile}
 
-Improve the kernel; 
+**Improvement Strategy:**
+
+Based on the above feedback, analyze and address the specific issues identified:
+
+**If Compilation Errors:**
+- Identify syntax errors, missing headers, or type mismatches
+- Fix undefined symbols and incorrect function signatures
+- Ensure proper HIP/CUDA/Triton API usage
+- Correct memory allocation and pointer handling issues
+
+**If Runtime Errors:**
+- Address memory access violations and bounds checking failures
+- Fix race conditions and synchronization issues
+- Resolve numerical stability problems (NaN, inf, overflow)
+- Correct kernel launch configuration errors
+
+**If Performance Issues:**
+- Analyze memory bandwidth utilization and access patterns
+- Identify compute bottlenecks and optimization opportunities
+- Address thread divergence and occupancy problems
+- Optimize algorithm selection and data structure usage
+
+**If Correctness Issues:**
+- Compare expected vs. actual numerical results
+- Identify precision loss and accumulation errors
+- Fix logical errors in algorithm implementation
+- Ensure proper handling of edge cases and boundary conditions
+
+**Refinement Guidelines:**
+1. **Targeted Fixes**: Address the specific issues mentioned in the feedback without unnecessary changes
+2. **Root Cause Analysis**: Don't just treat symptoms - fix the underlying problems
+3. **Incremental Improvement**: Make conservative changes that build upon working elements
+4. **Validation**: Ensure fixes don't introduce new issues in other parts of the code
+5. **Performance Preservation**: Maintain any performance gains from previous iterations
+
+**Debugging Approach:**
+- Start with the most critical error (compilation > runtime > correctness > performance)
+- Use systematic debugging: isolate the problem, test the fix, validate the solution
+- Consider alternative approaches if the current method has fundamental limitations
+- Implement robust error checking and validation in the improved version
+
+Generate an improved kernel that specifically addresses the identified issues while maintaining or enhancing the positive aspects of the previous implementation. 
