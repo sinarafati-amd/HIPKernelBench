@@ -1040,6 +1040,136 @@ class EnhancedParallelKernelGenerator:
         
         return code
     
+    def build_user_prompt(self, torch_expl: str, doc_ctx: str, feedback: str, previous_kernel: str = "", iter_idx: int = 0) -> str:
+        """Enhanced prompt building with GEAK-Agent inspired structure"""
+        lang_map = {
+            "hip": "HIP",
+            "cuda": "CUDA", 
+            "triton": "Triton"
+        }
+        lang_display = lang_map[self.kernel_lang]
+        
+        # Stage-specific prompt building
+        if iter_idx == 0:
+            # Initial generation - focus on correctness
+            parts = [
+                f"**Task**: Generate a functionally correct {lang_display} kernel implementation.",
+                "",
+                "**Primary Requirements:**",
+                "- Functional correctness takes absolute priority over performance",
+                "- Handle all edge cases and boundary conditions",
+                "- Implement robust error checking and bounds validation",
+                "- Use appropriate numerical precision to avoid accuracy loss",
+                "",
+                "**PyTorch Operation Analysis:**",
+                torch_expl,
+                ""
+            ]
+            
+            if doc_ctx.strip():
+                parts.extend([
+                    f"**{lang_display} Documentation Context:**",
+                    doc_ctx,
+                    ""
+                ])
+                
+        else:
+            # Iterative improvement - focus on optimization and debugging
+            parts = [
+                f"**Task**: Improve the {lang_display} kernel based on analysis of previous attempts and feedback.",
+                "",
+                f"**Optimization Stage {iter_idx}:**",
+                "- Analyze the previous kernel implementation and feedback",
+                "- Apply targeted optimizations while maintaining correctness",
+                "- Address specific issues identified in the feedback",
+                "- Consider alternative algorithmic approaches if needed",
+                "",
+                "**PyTorch Operation Analysis:**",
+                torch_expl,
+                ""
+            ]
+            
+            if previous_kernel.strip():
+                parts.extend([
+                    f"**Previous {lang_display} Kernel Implementation:**",
+                    "```",
+                    previous_kernel.strip(),
+                    "```",
+                    ""
+                ])
+                
+        # Add detailed feedback analysis if available
+        if feedback.strip():
+            parts.extend([
+                "**Execution Feedback and Analysis:**",
+                "The following feedback contains critical information about the previous kernel's performance,",
+                "correctness, or compilation issues. Analyze this carefully to understand what needs improvement:",
+                "",
+                feedback[:8000],  # Increased from 6000 to provide more context
+                ""
+            ])
+            
+        # Stage-specific instructions
+        if iter_idx == 0:
+            instruction_parts = [
+                "**Generation Instructions:**",
+                "1. **Correctness First**: Ensure the kernel produces mathematically correct results",
+                "2. **Robust Implementation**: Handle edge cases, boundary conditions, and invalid inputs",
+                "3. **Clear Structure**: Use readable code with appropriate comments for complex operations",
+                "4. **Memory Safety**: Implement proper bounds checking and memory access validation",
+                "5. **Numerical Stability**: Use appropriate data types and avoid numerical instabilities"
+            ]
+        else:
+            instruction_parts = [
+                "**Optimization Instructions:**",
+                "1. **Targeted Improvement**: Address specific issues identified in the feedback",
+                "2. **Performance Focus**: Apply optimizations while maintaining correctness",
+                "3. **Systematic Approach**: Make incremental improvements that build on working elements",
+                "4. **Alternative Strategies**: Consider different algorithmic approaches if current approach has limitations",
+                "5. **Validation**: Ensure optimizations don't introduce new correctness issues"
+            ]
+            
+        parts.extend(instruction_parts)
+        parts.extend([""])
+        
+        # Language-specific code generation instructions
+        code_instructions = {
+            "hip": [
+                "**HIP Code Requirements:**",
+                "- Include all necessary headers: #include <hip/hip_runtime.h>, #include <iostream>, #include <cmath>",
+                "- Implement robust error checking for all HIP API calls",
+                "- Use appropriate __launch_bounds__ for occupancy optimization",
+                "- Optimize for AMD GPU architecture with proper memory coalescing",
+                "- Include both kernel function and required C wrapper interface",
+                "",
+                "Generate ONLY the complete HIP C++ code with no additional explanation or markdown formatting."
+            ],
+            "cuda": [
+                "**CUDA Code Requirements:**",
+                "- Include all necessary headers: #include <cuda_runtime.h>, #include <iostream>, #include <cmath>",
+                "- Implement comprehensive error checking for all CUDA API calls",
+                "- Use appropriate __launch_bounds__ for occupancy optimization",
+                "- Optimize for NVIDIA GPU architecture with proper memory coalescing",
+                "- Include both kernel function and required C wrapper interface",
+                "",
+                "Generate ONLY the complete CUDA C++ code with no additional explanation or markdown formatting."
+            ],
+            "triton": [
+                "**Triton Code Requirements:**",
+                "- Include all necessary imports: import torch, import triton, import triton.language as tl",
+                "- Use appropriate @triton.jit decorators and autotuning configurations",
+                "- Implement proper block-level optimizations and memory access patterns",
+                "- Follow Triton best practices for GPU kernel optimization",
+                "- Include both kernel function and required wrapper function",
+                "",
+                "Generate ONLY the complete Triton Python code with no additional explanation or markdown formatting."
+            ]
+        }
+        
+        parts.extend(code_instructions[self.kernel_lang])
+        
+        return "\n".join(parts)
+    
     # Include all the helper methods from the original ParallelKernelGenerator
     def _generate_single_candidate(self, agent_name, instance_id, torch_expl, doc_context, feedback, iter_idx, previous_kernel):
         """Generate a single kernel candidate (same as original)"""
