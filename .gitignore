@@ -712,3 +712,9 @@ client_secret.json
 .gdoc_image_cache.json
 logs_ctypes/*
 logsv0/*
+kernel-agentic/logs0/*
+kernel-agentic/logs1/
+kernel-agentic/logs2/*
+kernel-agentic/logs3/*
+kernel-agentic/datasets/torch_example_kernels/*
+kernel-agentic/datasets/torch_example_kernels copy/*

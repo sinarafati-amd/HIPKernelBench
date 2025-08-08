@@ -18,7 +18,7 @@ from ..utils.rocprof_parser import profile
 from .search_agent import SearchAgent
 import re
 from collections import deque
-from ..eval.correctness import max_abs_err
+from ..eval.correctness import max_abs_err, compare_torch_to_hip, compare_kernel_to_kernel
 from src.optim.bayes   import BayesOpt
 from src.optim.genetic import GeneticOpt
 from pathlib import Path
@@ -249,9 +249,20 @@ def orchestrate(torch_file: str, iterations: int | None):
                 so_path = os.path.join(kernel_dir, "kernel.so")
                 if os.path.exists(so_path):
                     try:
-                        err = max_abs_err(torch_file, so_path)
-                        errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
-                        log.append({"event": "correctness_check", "status": "passed" if not errors else "failed", "error": errors, "actual_error": err})
+                        report = compare_torch_to_hip(torch_file, so_path)
+                        if report.get("ok", False):
+                            err = float(report.get("max_abs_err", 0.0))
+                            errors = "" if err <= ATOL else f"MAX_ABS_ERR={err:.4e} > {ATOL}"
+                            log.append({
+                                "event": "correctness_check",
+                                "status": "passed" if not errors else "failed",
+                                "error": errors,
+                                "actual_error": err,
+                                "details": report.get("details", {})
+                            })
+                        else:
+                            errors = report.get("error", "Unknown correctness failure")
+                            log.append({"event": "correctness_check", "status": "failed", "error": errors})
                     except AttributeError as e:
                         if "undefined symbol: run_kernel" in str(e):
                             errors = "Kernel does not expose run_kernel interface for correctness checking"
@@ -630,7 +641,7 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
   
     # ---- get baseline performance ------------------------------------------
     try:
-        baseline_stats, baseline_errors, _ = runner.run(kernel_code)
+        baseline_stats, baseline_errors, baseline_kernel_file = runner.run(kernel_code)
         baseline_us = _extract_latency_us(baseline_stats)
         if baseline_us is None:
             print("Warning: Could not get baseline performance, using dummy value")
@@ -638,6 +649,7 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
     except Exception as exc:
         print(f"Error getting baseline performance: {exc}")
         baseline_us = 1000.0  # dummy baseline
+        baseline_kernel_file = None
 
     # ---- initialization ---------------------------------------------------
     best_code: str | None = kernel_code  # Start with input kernel as best
@@ -729,6 +741,35 @@ def orchestrate_kernel_optimization(kernel_file: str, iterations: int | None):
                 if response.status_code == 200:
                     omnivise_json = json.loads(response.text)
                     stats.update(omnivise_json['data'])
+
+        # ---------- correctness (kernel2kernel) ------------------------------
+        if CHK_NUM and baseline_kernel_file and not errors:
+            try:
+                base_so = os.path.join(os.path.dirname(baseline_kernel_file), "kernel.so")
+                opt_so = os.path.join(os.path.dirname(kernel_file_path), "kernel.so")
+                if os.path.exists(base_so) and os.path.exists(opt_so):
+                    k2k_report = compare_kernel_to_kernel(base_so, opt_so)
+                    if k2k_report.get("ok", False):
+                        err_val = float(k2k_report.get("max_abs_err", 0.0))
+                        if err_val > ATOL:
+                            errors = f"MAX_ABS_ERR={err_val:.4e} > {ATOL}"
+                        log.append({
+                            "event": "kernel2kernel_correctness",
+                            "status": "passed" if err_val <= ATOL else "failed",
+                            "actual_error": err_val,
+                            "details": k2k_report.get("details", {})
+                        })
+                else:
+                    log.append({
+                        "event": "kernel2kernel_correctness",
+                        "status": "skipped",
+                        "reason": "shared library not found",
+                        "base_so_exists": os.path.exists(base_so),
+                        "opt_so_exists": os.path.exists(opt_so)
+                    })
+            except Exception as e:
+                # Do not crash optimization loop; record error
+                log.append({"event": "kernel2kernel_correctness", "status": "error", "error": str(e)})
 
         # ---------- metrics -------------------------------------------------
         hip_us_raw = _extract_latency_us(stats)

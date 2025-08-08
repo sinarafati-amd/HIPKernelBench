@@ -524,6 +524,17 @@ class EnhancedParallelKernelGenerator:
                                     4. Use register blocking for inner loops
                                     5. Consider transpose optimizations for memory layout
                                     6. Implement proper boundary checks for non-multiple sizes
+                                    
+                                    CRITICAL INTERFACE REQUIREMENTS FOR MATMUL:
+                                    - Provide a C wrapper named run_kernel with ONE of the following signatures:
+                                      a) extern "C" void run_kernel(void* input, void* output, int size);
+                                         • Input buffer packs A then B in row-major contiguous layout
+                                         • size represents N (for square N x N), or output columns for general MxN
+                                      b) extern "C" void run_kernel(const float* A, const float* B, float* C, int M, int N, int K);
+                                         • A is MxK, B is KxN, C is MxN in row-major layout
+                                    - In ALL cases, guard every global/shared memory access with bounds checks
+                                      (e.g., if (row < M && col < N) ...), and fill out-of-range tile values with 0.0f
+                                    - Ensure kernel writes to C only when indices are within bounds
                                     """
         elif operation_category == "convolution":
             complexity_guidance += """

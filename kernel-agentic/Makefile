@@ -24,7 +24,6 @@ vector-store:
 	       --mode "$(MODE)"
 
 run:
-	rm -r logs/* /tmp/hip* /tmp/canRun* /tmp/miopen_kcache_* || true
 	@mkdir -p logs
 	@for file in $(TORCH_FILE_DIR)/*.py; do \
 		base=$${file##*/}; \

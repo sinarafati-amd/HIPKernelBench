@@ -8,7 +8,7 @@ Pipeline:
   cheat_sheet: false
   omnivise: false
   kernel_lang: hip
-  enable_correctness: false  # IMPORTANT: Enable correctness checking
+  enable_correctness: true  # IMPORTANT: Enable correctness checking
   help_injection: false      # Enable help injection for complex kernels
   mode: pytorch2kernel
   # mode: kernel2kernel
@@ -17,8 +17,8 @@ Pipeline:
   parallel_inference:
     enabled: true
     models:
-      claude_kernel_generator: 1 
-      o3_kernel_generator: 1       
+      claude_kernel_generator: 3 
+      o3_kernel_generator: 3       
     selection_strategy: "best_correct"  # Prioritize correctness for complex kernels
     timeout: 180                    # Longer timeout for complex generation
     max_retries: 3                  
@@ -34,7 +34,7 @@ Pipeline:
       models: 2                     # Generate more evolved candidates
 
   search:
-    enabled: true
+    enabled: false
     method: genetic
     patience: 8                     # More patience for complex kernels
     max_trials: 10                  # More trials for optimization
@@ -92,20 +92,12 @@ eval:
 
 stopping:
   min_iters: 3                      # Minimum iterations for complex kernels
-  max_iters: 15                     # More iterations allowed
+  max_iters: 8                     # More iterations allowed
   target_speedup: 1.2               # More achievable target for complex kernels
   min_improvement: 0.03             # Smaller improvements still count
   patience: 6                       # More patience for complex kernels
   max_failures: 6                   # More tolerance for failures
 
-# HIP-specific configuration moved to gpu_specs
-# block_size: 256                   # Good default for matrix operations
-# n_samples: 3                      # More samples for averaging
-# profiler: rocprof-compute         # Options: rocprof, rocprof-compute (rocprof for MI250, rocprof-compute for MI300)
-# 
-# Example configuration for MI250:
-# arch: gfx90a
-# profiler: rocprof
 
 rag:
   default_mode: text
