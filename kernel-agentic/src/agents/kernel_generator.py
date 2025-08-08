@@ -216,7 +216,7 @@ class KernelGenerator(BaseAgent):
         # ------------------------------------------------------------------
         # 3) Adaptive sampling strategy based on iteration and feedback
         # ------------------------------------------------------------------
-        config_key = self.kernel_lang if self.kernel_lang in CFG else "hip"
+        config_key = self.kernel_lang if self.kernel_lang in CFG else "gpu_specs"
         agent_models = CFG.get("openai", {}).get("agent_models", {})
         agent_config = agent_models.get("kernel_generator", {})
         

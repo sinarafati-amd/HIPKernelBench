@@ -56,7 +56,7 @@ class Executor:
             raise RuntimeError("hipcc not found. Please install ROCm HIP compiler.")
         
         # Check which profiler to use based on config
-        profiler = CFG.get("hip", {}).get("profiler", "rocprof-compute")
+        profiler = CFG.get("gpu_specs", {}).get("profiler", "rocprof-compute")
         
         if profiler == "rocprof-compute":
             if shutil.which("rocprof-compute") is None:
@@ -80,7 +80,7 @@ class Executor:
         print('*'*120)
 
         compile_cmd = [
-            "hipcc", "-O3", "-std=c++17", f"--offload-arch={CFG['hip']['gpu_arch']}", 
+            "hipcc", "-O3", "-std=c++17", f"--offload-arch={CFG['gpu_specs']['arch']}", 
             "-g", hip_file, "-o", out_name
         ]
         so_cmd = ["hipcc", "-shared", "-fPIC", hip_file, "-o", so_name]
@@ -110,7 +110,7 @@ class Executor:
         os.makedirs(profile_output_path, exist_ok=True)
         
         # Use appropriate profiler based on config
-        profiler = CFG.get("hip", {}).get("profiler", "rocprof-compute")
+        profiler = CFG.get("gpu_specs", {}).get("profiler", "rocprof-compute")
         
         if profiler == "rocprof-compute":
             profile_cmd = [

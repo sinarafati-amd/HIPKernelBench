@@ -5,11 +5,11 @@
 Pipeline:
   rag_enabled: false  # Disable RAG temporarily - vector store needs to be built first
   online_search: false
-  cheat_sheet: true
+  cheat_sheet: false
   omnivise: false
   kernel_lang: hip
-  enable_correctness: true  # IMPORTANT: Enable correctness checking
-  help_injection: true      # Enable help injection for complex kernels
+  enable_correctness: false  # IMPORTANT: Enable correctness checking
+  help_injection: false      # Enable help injection for complex kernels
   mode: pytorch2kernel
   # mode: kernel2kernel
   
@@ -17,8 +17,8 @@ Pipeline:
   parallel_inference:
     enabled: true
     models:
-      claude_kernel_generator: 3   
-      o3_kernel_generator: 3       
+      claude_kernel_generator: 1 
+      o3_kernel_generator: 1       
     selection_strategy: "best_correct"  # Prioritize correctness for complex kernels
     timeout: 180                    # Longer timeout for complex generation
     max_retries: 3                  
@@ -78,10 +78,13 @@ claude:
   retry_delay: 2                    # Longer delay between retries
 
 gpu_specs:
-  arch: gfx942                      # MI300X specific
+  arch: gfx90a                     # MI300X specific gfx942---- MI250: gfx90a
   wavefront: 64
   cucount: 304                      # MI300X has 304 CUs
   shared_mem: 65536                 # 64KB LDS per workgroup
+  profiler: rocprof         # Options: rocprof, rocprof-compute (rocprof for MI250, rocprof-compute for MI300)
+  block_size: 256                   # Good default for matrix operations
+  n_samples: 3                      # More samples for averaging
 
 eval:
   atol: 1e-2                        # Slightly relaxed for large matrices
@@ -95,15 +98,14 @@ stopping:
   patience: 6                       # More patience for complex kernels
   max_failures: 6                   # More tolerance for failures
 
-hip:
-  gpu_arch: gfx942
-  block_size: 256                   # Good default for matrix operations
-  n_samples: 3                      # More samples for averaging
-  profiler: rocprof-compute         # Options: rocprof, rocprof-compute (rocprof for MI250, rocprof-compute for MI300)
-  
-  # Example configuration for MI250:
-  # gpu_arch: gfx90a
-  # profiler: rocprof
+# HIP-specific configuration moved to gpu_specs
+# block_size: 256                   # Good default for matrix operations
+# n_samples: 3                      # More samples for averaging
+# profiler: rocprof-compute         # Options: rocprof, rocprof-compute (rocprof for MI250, rocprof-compute for MI300)
+# 
+# Example configuration for MI250:
+# arch: gfx90a
+# profiler: rocprof
 
 rag:
   default_mode: text

@@ -31,7 +31,7 @@ CFG = yaml.safe_load(open("config.yml"))
 STOP_CFG   = CFG["stopping"]
 PIPELINE_CFG    = CFG.get("Pipeline", {})
 EVAL_CFG    = CFG.get("eval", {})
-HIP_CFG     = CFG.get("hip",  {})
+# HIP_CFG removed - using gpu_specs instead
 LOG_DIR   = pathlib.Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 SEARCH_CFG = PIPELINE_CFG['search']
